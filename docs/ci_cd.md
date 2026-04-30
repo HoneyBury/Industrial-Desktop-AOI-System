@@ -10,19 +10,11 @@
 
 主要阶段包括：
 
-- 安装 Qt 6、OpenCV、CMake、Ninja
-- 使用 CMake Preset 配置工程
+- 使用 CMake Preset 配置快速 CI 工程
+- 关闭 Qt / OpenCV / SQLite 可选依赖，直接验证核心库与测试
 - 编译项目
 - 运行 CTest / GoogleTest
 - 运行非阻塞模式的 `clang-tidy`
-
-## 安全扫描
-
-`codeql.yml` 用于执行 C++ 代码安全扫描，触发场景包括：
-
-- push 到 `main` / `develop`
-- Pull Request 指向 `main`
-- 每周定时扫描一次
 
 ## 发布流程
 

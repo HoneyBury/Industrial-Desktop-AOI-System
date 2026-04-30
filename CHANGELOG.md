@@ -13,5 +13,10 @@
 - 初始化 AOI 核心模块接口与最小实现
 - 初始化 Qt 主窗口与业务对话框骨架
 - 初始化兼容 GoogleTest 的测试工程与基线测试
-- 初始化 GitHub Actions CI、CodeQL 与 Release 工作流
+- 初始化 GitHub Actions CI 与 Release 工作流
 - 初始化适合面试展示的技术文档体系
+
+### 变更
+
+- 移除 CodeQL 工作流，简化日常开发流水线
+- 将 CI 调整为无 Qt/OpenCV/SQLite 的快速构建与测试模式

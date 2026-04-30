@@ -17,10 +17,6 @@ option(AOI_ENABLE_OPENCV "Enable OpenCV-backed camera and vision helpers when Op
 option(AOI_ENABLE_SQLITE "Enable SQLite-backed database integration when SQLite3 is available." ON)
 option(AOI_FETCH_GTEST "Fetch GoogleTest when it is not installed." OFF)
 
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
-
 include(CTest)
 include(GNUInstallDirs)
 
@@ -35,6 +31,9 @@ if(AOI_ENABLE_GUI)
   find_package(Qt6 QUIET COMPONENTS Widgets)
   if(Qt6_FOUND)
     set(AOI_HAS_QT ON)
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
+    set(CMAKE_AUTOUIC ON)
   else()
     # 本地没有 Qt 时仍保留控制台入口，方便先推进核心库、测试和文档。
     message(STATUS "Qt6 Widgets not found. Building console bootstrap target only.")

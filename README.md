@@ -1,7 +1,6 @@
 # Industrial-Desktop-AOI-System
 
 [![CI](https://github.com/HoneyBury/Industrial-Desktop-AOI-System/actions/workflows/ci.yml/badge.svg)](https://github.com/HoneyBury/Industrial-Desktop-AOI-System/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/HoneyBury/Industrial-Desktop-AOI-System/actions/workflows/codeql.yml/badge.svg)](https://github.com/HoneyBury/Industrial-Desktop-AOI-System/actions/workflows/codeql.yml)
 [![Release](https://github.com/HoneyBury/Industrial-Desktop-AOI-System/actions/workflows/release.yml/badge.svg)](https://github.com/HoneyBury/Industrial-Desktop-AOI-System/actions/workflows/release.yml)
 
 ## 项目简介
@@ -27,7 +26,7 @@
 - Python 3.12
 - YOLO / ONNX
 - GitHub Actions
-- clang-format / clang-tidy / CodeQL
+- clang-format / clang-tidy
 
 ## 系统架构
 
@@ -121,7 +120,6 @@ cmake --build --preset release --parallel
 ## CI/CD
 
 - `ci.yml`：构建、CTest、clang-tidy
-- `codeql.yml`：C++ 安全扫描
 - `release.yml`：Tag 触发 Release 打包
 
 详见 [docs/ci_cd.md](docs/ci_cd.md)。
@@ -133,7 +131,7 @@ cmake --build --preset release --parallel
 1. 打开主界面，介绍 AOI 上位机模块划分
 2. 说明 Mac 摄像头与虚拟运动平台的工程化替代方案
 3. 演示标定、Mark 对位、ROI、程序管理与 AI 部署设计
-4. 展示 GoogleTest、GitHub Actions、CodeQL、分支策略与代码审查流程
+4. 展示 GoogleTest、GitHub Actions、分支策略与代码审查流程
 5. 说明未来如何扩展到海康/大华相机与真实运动控制卡
 
 详细讲解脚本见 [docs/interview_demo_script.md](docs/interview_demo_script.md)。
