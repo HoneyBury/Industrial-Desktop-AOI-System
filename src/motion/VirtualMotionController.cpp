@@ -44,6 +44,8 @@ bool VirtualMotionController::moveRelative(const MotionAxis axis, const double d
 
 void VirtualMotionController::emergencyStop() { emergencyStopped_ = true; }
 
+void VirtualMotionController::resetEmergencyStop() { emergencyStopped_ = false; }
+
 bool VirtualMotionController::isStopped() const { return emergencyStopped_; }
 
 std::optional<double> VirtualMotionController::position(const MotionAxis axis) const {
@@ -54,4 +56,3 @@ std::optional<double> VirtualMotionController::position(const MotionAxis axis) c
 
   return iterator->second;
 }
-

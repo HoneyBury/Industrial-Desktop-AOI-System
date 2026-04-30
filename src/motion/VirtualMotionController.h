@@ -12,6 +12,7 @@ public:
   bool moveAbsolute(MotionAxis axis, double targetPosition) override;
   bool moveRelative(MotionAxis axis, double delta) override;
   void emergencyStop() override;
+  void resetEmergencyStop() override;
   bool isStopped() const override;
   std::optional<double> position(MotionAxis axis) const override;
 
@@ -19,4 +20,3 @@ private:
   std::unordered_map<MotionAxis, double> axisPositions_;
   bool emergencyStopped_ {false};
 };
-

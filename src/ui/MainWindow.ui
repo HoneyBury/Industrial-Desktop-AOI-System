@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1200</width>
-    <height>720</height>
+    <width>1360</width>
+    <height>860</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -15,35 +15,622 @@
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>12</number>
+    </property>
+    <property name="leftMargin">
+     <number>16</number>
+    </property>
+    <property name="topMargin">
+     <number>16</number>
+    </property>
+    <property name="rightMargin">
+     <number>16</number>
+    </property>
+    <property name="bottomMargin">
+     <number>16</number>
+    </property>
     <item>
      <widget class="QLabel" name="titleLabel">
-      <property name="text">
-       <string>Industrial AOI Vision Inspection &amp; Virtual Motion Calibration</string>
-      </property>
       <property name="styleSheet">
-       <string notr="true">font-size: 22px; font-weight: 700; padding: 12px;</string>
+       <string notr="true">font-size: 24px; font-weight: 700; color: #0f172a; padding: 4px 0;</string>
+      </property>
+      <property name="text">
+       <string>工业 AOI 视觉检测与虚拟运动校准系统</string>
       </property>
      </widget>
     </item>
     <item>
      <widget class="QLabel" name="statusLabel">
+      <property name="styleSheet">
+       <string notr="true">padding: 8px 12px; border: 1px solid #d0d5dd; border-radius: 8px; background: #f8fafc; color: #344054;</string>
+      </property>
       <property name="text">
-       <string>System bootstrap loading...</string>
+       <string>系统状态加载中...</string>
       </property>
      </widget>
     </item>
     <item>
-     <widget class="QTextEdit" name="consoleTextEdit">
-      <property name="readOnly">
-       <bool>true</bool>
+     <layout class="QHBoxLayout" name="overviewLayout">
+      <property name="spacing">
+       <number>12</number>
       </property>
-      <property name="plainText">
-       <string>Interview demo scaffold:
-- Camera: Mac webcam via OpenCV
-- Motion: Virtual X/Y/Z/R controller
-- Vision: calibration / Mark / ROI / code reader
-- AI: ONNX inference placeholder</string>
+      <item>
+       <widget class="QGroupBox" name="demoOverviewGroupBox">
+        <property name="title">
+         <string>演示环境概览</string>
+        </property>
+        <layout class="QGridLayout" name="demoOverviewGridLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="cameraTitleLabel">
+           <property name="text">
+            <string>相机链路</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="cameraValueLabel">
+           <property name="styleSheet">
+            <string notr="true">font-weight: 700; color: #175cd3;</string>
+           </property>
+           <property name="text">
+            <string>Mac 摄像头模拟工业相机</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="motionTitleLabel">
+           <property name="text">
+            <string>运动平台</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="motionValueLabel">
+           <property name="styleSheet">
+            <string notr="true">font-weight: 700; color: #175cd3;</string>
+           </property>
+           <property name="text">
+            <string>Virtual X/Y/Z/R 四轴</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="visionTitleLabel">
+           <property name="text">
+            <string>视觉流程</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QLabel" name="visionValueLabel">
+           <property name="styleSheet">
+            <string notr="true">font-weight: 700; color: #175cd3;</string>
+           </property>
+           <property name="text">
+            <string>标定 / Mark / ROI / 读码 / AI 骨架</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="motionCommandGroupBox">
+        <property name="title">
+         <string>全局运动控制</string>
+        </property>
+        <layout class="QGridLayout" name="motionCommandGridLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="motionStateTitleLabel">
+           <property name="text">
+            <string>当前状态</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="motionStateValueLabel">
+           <property name="text">
+            <string>运行就绪</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QPushButton" name="emergencyStopButton">
+           <property name="styleSheet">
+            <string notr="true">QPushButton { background: #b42318; color: white; font-weight: 700; padding: 8px 18px; border-radius: 8px; } QPushButton:disabled { background: #fda29b; }</string>
+           </property>
+           <property name="text">
+            <string>急停</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QPushButton" name="resetStopButton">
+           <property name="styleSheet">
+            <string notr="true">QPushButton { background: #175cd3; color: white; font-weight: 700; padding: 8px 18px; border-radius: 8px; } QPushButton:disabled { background: #84caff; }</string>
+           </property>
+           <property name="text">
+            <string>复位急停</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QGridLayout" name="axisGridLayout">
+      <property name="horizontalSpacing">
+       <number>12</number>
       </property>
+      <property name="verticalSpacing">
+       <number>12</number>
+      </property>
+      <item row="0" column="0">
+       <widget class="QGroupBox" name="xAxisGroupBox">
+        <property name="title">
+         <string>X 轴控制</string>
+        </property>
+        <layout class="QGridLayout" name="xAxisGridLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="xPositionTitleLabel">
+           <property name="text">
+            <string>当前位置</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="xPositionValueLabel">
+           <property name="styleSheet">
+            <string notr="true">font-size: 18px; font-weight: 700; color: #111827;</string>
+           </property>
+           <property name="text">
+            <string>0.000 mm</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="xAxisStateTitleLabel">
+           <property name="text">
+            <string>轴状态</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="xAxisStateValueLabel">
+           <property name="text">
+            <string>可操作</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="xTargetTitleLabel">
+           <property name="text">
+            <string>绝对目标</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QDoubleSpinBox" name="xTargetSpinBox">
+           <property name="minimum">
+            <double>-9999.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>9999.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0" colspan="2">
+          <widget class="QPushButton" name="xAbsMoveButton">
+           <property name="text">
+            <string>执行绝对移动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="xStepTitleLabel">
+           <property name="text">
+            <string>点动步长</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QDoubleSpinBox" name="xStepSpinBox">
+           <property name="minimum">
+            <double>0.001000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>999.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>1.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QPushButton" name="xJogNegativeButton">
+           <property name="text">
+            <string>负向点动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QPushButton" name="xJogPositiveButton">
+           <property name="text">
+            <string>正向点动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="0" colspan="2">
+          <widget class="QPushButton" name="xHomeButton">
+           <property name="text">
+            <string>回零</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QGroupBox" name="yAxisGroupBox">
+        <property name="title">
+         <string>Y 轴控制</string>
+        </property>
+        <layout class="QGridLayout" name="yAxisGridLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="yPositionTitleLabel">
+           <property name="text">
+            <string>当前位置</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="yPositionValueLabel">
+           <property name="styleSheet">
+            <string notr="true">font-size: 18px; font-weight: 700; color: #111827;</string>
+           </property>
+           <property name="text">
+            <string>0.000 mm</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="yAxisStateTitleLabel">
+           <property name="text">
+            <string>轴状态</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="yAxisStateValueLabel">
+           <property name="text">
+            <string>可操作</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="yTargetTitleLabel">
+           <property name="text">
+            <string>绝对目标</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QDoubleSpinBox" name="yTargetSpinBox">
+           <property name="minimum">
+            <double>-9999.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>9999.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0" colspan="2">
+          <widget class="QPushButton" name="yAbsMoveButton">
+           <property name="text">
+            <string>执行绝对移动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="yStepTitleLabel">
+           <property name="text">
+            <string>点动步长</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QDoubleSpinBox" name="yStepSpinBox">
+           <property name="minimum">
+            <double>0.001000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>999.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>1.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QPushButton" name="yJogNegativeButton">
+           <property name="text">
+            <string>负向点动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QPushButton" name="yJogPositiveButton">
+           <property name="text">
+            <string>正向点动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="0" colspan="2">
+          <widget class="QPushButton" name="yHomeButton">
+           <property name="text">
+            <string>回零</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QGroupBox" name="zAxisGroupBox">
+        <property name="title">
+         <string>Z 轴控制</string>
+        </property>
+        <layout class="QGridLayout" name="zAxisGridLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="zPositionTitleLabel">
+           <property name="text">
+            <string>当前位置</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="zPositionValueLabel">
+           <property name="styleSheet">
+            <string notr="true">font-size: 18px; font-weight: 700; color: #111827;</string>
+           </property>
+           <property name="text">
+            <string>0.000 mm</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="zAxisStateTitleLabel">
+           <property name="text">
+            <string>轴状态</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="zAxisStateValueLabel">
+           <property name="text">
+            <string>可操作</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="zTargetTitleLabel">
+           <property name="text">
+            <string>绝对目标</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QDoubleSpinBox" name="zTargetSpinBox">
+           <property name="minimum">
+            <double>-9999.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>9999.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0" colspan="2">
+          <widget class="QPushButton" name="zAbsMoveButton">
+           <property name="text">
+            <string>执行绝对移动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="zStepTitleLabel">
+           <property name="text">
+            <string>点动步长</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QDoubleSpinBox" name="zStepSpinBox">
+           <property name="minimum">
+            <double>0.001000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>999.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>1.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QPushButton" name="zJogNegativeButton">
+           <property name="text">
+            <string>负向点动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QPushButton" name="zJogPositiveButton">
+           <property name="text">
+            <string>正向点动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="0" colspan="2">
+          <widget class="QPushButton" name="zHomeButton">
+           <property name="text">
+            <string>回零</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QGroupBox" name="rAxisGroupBox">
+        <property name="title">
+         <string>R 轴控制</string>
+        </property>
+        <layout class="QGridLayout" name="rAxisGridLayout">
+         <item row="0" column="0">
+          <widget class="QLabel" name="rPositionTitleLabel">
+           <property name="text">
+            <string>当前位置</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QLabel" name="rPositionValueLabel">
+           <property name="styleSheet">
+            <string notr="true">font-size: 18px; font-weight: 700; color: #111827;</string>
+           </property>
+           <property name="text">
+            <string>0.000 deg</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="rAxisStateTitleLabel">
+           <property name="text">
+            <string>轴状态</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QLabel" name="rAxisStateValueLabel">
+           <property name="text">
+            <string>可操作</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="rTargetTitleLabel">
+           <property name="text">
+            <string>绝对目标</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <widget class="QDoubleSpinBox" name="rTargetSpinBox">
+           <property name="minimum">
+            <double>-360.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>360.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+          </widget>
+         </item>
+         <item row="3" column="0" colspan="2">
+          <widget class="QPushButton" name="rAbsMoveButton">
+           <property name="text">
+            <string>执行绝对移动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="0">
+          <widget class="QLabel" name="rStepTitleLabel">
+           <property name="text">
+            <string>点动步长</string>
+           </property>
+          </widget>
+         </item>
+         <item row="4" column="1">
+          <widget class="QDoubleSpinBox" name="rStepSpinBox">
+           <property name="minimum">
+            <double>0.001000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>360.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>1.000000000000000</double>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QPushButton" name="rJogNegativeButton">
+           <property name="text">
+            <string>负向点动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="1">
+          <widget class="QPushButton" name="rJogPositiveButton">
+           <property name="text">
+            <string>正向点动</string>
+           </property>
+          </widget>
+         </item>
+         <item row="6" column="0" colspan="2">
+          <widget class="QPushButton" name="rHomeButton">
+           <property name="text">
+            <string>回零</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="consoleGroupBox">
+      <property name="title">
+       <string>操作日志</string>
+      </property>
+      <layout class="QVBoxLayout" name="consoleGroupLayout">
+       <item>
+        <widget class="QTextEdit" name="consoleTextEdit">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+         <property name="placeholderText">
+          <string>此处显示虚拟运动控制、标定、程序切换等操作日志。</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </widget>
     </item>
    </layout>
@@ -52,4 +639,3 @@
  <resources/>
  <connections/>
 </ui>
-
