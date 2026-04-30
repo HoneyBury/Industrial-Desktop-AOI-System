@@ -1,0 +1,55 @@
+# Build outputs
+/build/
+/out/
+/cmake-build-*/
+
+# IDEs
+.idea/
+.vscode/
+*.user
+*.user.*
+*.qbs.user
+*.swp
+*.swo
+.DS_Store
+
+# CMake
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+Testing/
+CTestTestfile.cmake
+cmake_install.cmake
+compile_commands.json
+
+# Binaries
+*.app
+*.dSYM/
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Runtime data
+/data/*.db
+/data/*.sqlite
+/logs/
+
+# Model and dataset outputs
+/dataset/raw/
+/dataset/processed/
+/models/*.onnx
+/models/*.engine
+/models/checkpoints/
+

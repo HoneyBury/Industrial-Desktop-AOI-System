@@ -1,0 +1,27 @@
+{
+  "name": "default_demo_program",
+  "aiModelPath": "models/demo.onnx",
+  "calibrationFilePath": "config/camera_calib.yaml",
+  "codeRegionName": "qr_region_01",
+  "marks": [
+    {
+      "x": 100.0,
+      "y": 80.0,
+      "score": 1.0
+    },
+    {
+      "x": 240.0,
+      "y": 82.0,
+      "score": 1.0
+    }
+  ],
+  "rois": [
+    {
+      "x": 20.0,
+      "y": 20.0,
+      "width": 120.0,
+      "height": 60.0
+    }
+  ]
+}
+

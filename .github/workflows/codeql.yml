@@ -1,0 +1,52 @@
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  analyze:
+    runs-on: macos-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - cpp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja qt opencv
+
+      - name: Export toolchain paths
+        run: |
+          echo "PATH=$(brew --prefix qt)/bin:$PATH" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix qt):$(brew --prefix opencv)" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          cmake --preset default -DAOI_FETCH_GTEST=ON
+          cmake --build --preset default --parallel
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build-test:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja qt opencv llvm
+
+      - name: Export toolchain paths
+        run: |
+          echo "PATH=$(brew --prefix qt)/bin:$(brew --prefix llvm)/bin:$PATH" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix qt):$(brew --prefix opencv):$(brew --prefix llvm)" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake --preset default -DAOI_FETCH_GTEST=ON
+
+      - name: Build
+        run: cmake --build --preset default --parallel
+
+      - name: Test
+        run: ctest --preset default
+
+      - name: clang-tidy
+        run: cmake --build build/default --target aoi_clang_tidy || true
+

@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  package-macos-demo:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja qt opencv
+
+      - name: Export toolchain paths
+        run: |
+          echo "PATH=$(brew --prefix qt)/bin:$PATH" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix qt):$(brew --prefix opencv)" >> "$GITHUB_ENV"
+
+      - name: Configure Release
+        run: cmake --preset release -DAOI_FETCH_GTEST=ON
+
+      - name: Build Release
+        run: cmake --build --preset release --parallel
+
+      - name: Package artifact
+        run: |
+          mkdir -p dist
+          cp build/release/industrial_desktop_aoi dist/
+          tar -czf industrial-desktop-aoi-macos-demo.tar.gz dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: industrial-desktop-aoi-macos-demo
+          path: industrial-desktop-aoi-macos-demo.tar.gz
+

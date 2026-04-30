@@ -1,0 +1,7 @@
+fx: 1000.0
+fy: 1000.0
+cx: 640.0
+cy: 360.0
+pixel_to_mm_x: 0.01
+pixel_to_mm_y: 0.01
+
