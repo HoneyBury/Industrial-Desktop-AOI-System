@@ -6,6 +6,7 @@
 # IDEs
 .idea/
 .vscode/
+.ai/
 *.user
 *.user.*
 *.qbs.user

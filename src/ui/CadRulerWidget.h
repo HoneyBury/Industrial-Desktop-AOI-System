@@ -21,6 +21,7 @@ protected:
 
 private:
   [[nodiscard]] qreal tickStep() const;
+  QSize sizeHint() const override;
 
   Qt::Orientation orientation_;
   CadGraphicsView *view_ {nullptr};

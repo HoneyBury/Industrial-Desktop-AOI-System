@@ -1,0 +1,10 @@
+{
+  "programOpenPath": "",
+  "templateFolderPath": "",
+  "persistLogs": false,
+  "logFilePath": "",
+  "showLogWindow": true,
+  "workMode": "manual",
+  "alarmEnabled": false,
+  "maxDefectCount": 10
+}

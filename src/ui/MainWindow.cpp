@@ -2,11 +2,14 @@
 
 #ifdef AOI_HAS_QT_WIDGETS
 
+#include "config/AppSettings.h"
 #include "ui/CadGraphicsView.h"
 #include "ui/CadRulerWidget.h"
 #include "ui/CameraCalibDialog.h"
+#include "ui/LogWindow.h"
 #include "ui/MotionControlDialog.h"
 #include "ui/ProgramEditDialog.h"
+#include "ui/SettingsDialog.h"
 #include "ui_MainWindow.h"
 
 #include "vision/CodeReader.h"
@@ -16,6 +19,7 @@
 #include <optional>
 
 #include <QAction>
+#include <QCheckBox>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -37,12 +41,14 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QPainter>
 #include <QPen>
 #include <QPixmap>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -335,11 +341,23 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui_(new Ui::MainW
   cameraTimer_->setInterval(90);
   connect(cameraTimer_, &QTimer::timeout, this, &MainWindow::updateCameraFrame);
 
+  appSettings_ = AppSettingsManager::load(projectFilePath(QStringLiteral("config/app_settings.json")).toStdString());
+
+  logWindow_ = new LogWindow();
+  if (appSettings_.persistLogs) {
+    logWindow_->setPersistEnabled(true, QString::fromStdString(appSettings_.logFilePath));
+  }
+
   buildMenus();
   buildCentralUi();
   createDefaultProgram();
   refreshCameraState();
   refreshStatusSummary();
+
+  if (appSettings_.showLogWindow) {
+    logWindow_->show();
+  }
+
   appendLog(QStringLiteral("主界面已切换为 CAD 式预览工位布局。"));
   appendLog(QStringLiteral("左侧支持中键拖拽、滚轮缩放、左键框选生成 Mark/ROI。"));
 }
@@ -350,12 +368,14 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::buildMenus() {
-  auto *fileMenu = menuBar()->addMenu(QStringLiteral("文件"));
-  auto *newProgramAction = fileMenu->addAction(QStringLiteral("新建程序"));
-  auto *openProgramAction = fileMenu->addAction(QStringLiteral("打开程序"));
-  auto *saveProgramAction = fileMenu->addAction(QStringLiteral("保存程序"));
-  fileMenu->addSeparator();
-  auto *exitAction = fileMenu->addAction(QStringLiteral("退出"));
+  auto *programMenu = menuBar()->addMenu(QStringLiteral("程序"));
+  auto *newProgramAction = programMenu->addAction(QStringLiteral("新建程序"));
+  auto *openProgramAction = programMenu->addAction(QStringLiteral("打开程序"));
+  auto *saveProgramAction = programMenu->addAction(QStringLiteral("保存程序"));
+  programMenu->addSeparator();
+  auto *settingsAction = programMenu->addAction(QStringLiteral("系统设置..."));
+  programMenu->addSeparator();
+  auto *exitAction = programMenu->addAction(QStringLiteral("退出"));
 
   auto *cameraMenu = menuBar()->addMenu(QStringLiteral("相机"));
   auto *cameraConfigAction = cameraMenu->addAction(QStringLiteral("相机配置"));
@@ -365,14 +385,19 @@ void MainWindow::buildMenus() {
   auto *motionMenu = menuBar()->addMenu(QStringLiteral("运控"));
   auto *openMotionAction = motionMenu->addAction(QStringLiteral("打开虚拟运控面板"));
 
+  auto *viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
+  auto *openLogAction = viewMenu->addAction(QStringLiteral("运行日志"));
+
   connect(newProgramAction, &QAction::triggered, this, &MainWindow::createDefaultProgram);
   connect(openProgramAction, &QAction::triggered, this, &MainWindow::openProgram);
   connect(saveProgramAction, &QAction::triggered, this, &MainWindow::saveCurrentProgram);
+  connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettings);
   connect(exitAction, &QAction::triggered, this, &QWidget::close);
   connect(cameraConfigAction, &QAction::triggered, this, &MainWindow::openCameraConfig);
   connect(startPreviewAction, &QAction::triggered, this, &MainWindow::startCameraPreview);
   connect(stopPreviewAction, &QAction::triggered, this, &MainWindow::stopCameraPreview);
   connect(openMotionAction, &QAction::triggered, this, &MainWindow::openMotionPanel);
+  connect(openLogAction, &QAction::triggered, this, &MainWindow::openLogWindow);
 
   auto *toolBar = addToolBar(QStringLiteral("主工具栏"));
   toolBar->setMovable(false);
@@ -383,6 +408,8 @@ void MainWindow::buildMenus() {
   toolBar->addAction(cameraConfigAction);
   toolBar->addAction(startPreviewAction);
   toolBar->addAction(openMotionAction);
+  toolBar->addSeparator();
+  toolBar->addAction(settingsAction);
 }
 
 void MainWindow::buildCentralUi() {
@@ -425,17 +452,31 @@ void MainWindow::buildCentralUi() {
 
   splitter->addWidget(leftWidget);
   splitter->addWidget(rightWidget);
-  splitter->setStretchFactor(0, 4);
-  splitter->setStretchFactor(1, 3);
+  splitter->setStretchFactor(0, 3);
+  splitter->setStretchFactor(1, 2);
+  splitter->setSizes({900, 500});
+  splitter->setHandleWidth(4);
+
+  rightWidget->setMinimumWidth(380);
 
   statusBar()->showMessage(QStringLiteral("就绪"));
 }
 
 void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   auto *toolbarFrame = new QFrame(this);
-  toolbarFrame->setStyleSheet(
-      QStringLiteral("QFrame { background: #f8fafc; border: 1px solid #d0d5dd; border-radius: 12px; }"));
-  auto *toolbarLayout = new QHBoxLayout(toolbarFrame);
+  toolbarFrame->setStyleSheet(QStringLiteral(
+      "QFrame { background: #0f172a; border: 1px solid #334155; border-radius: 12px; }"
+      "QLabel { color: #cbd5e1; }"
+      "QPushButton { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; "
+      "  padding: 5px 12px; min-height: 26px; }"
+      "QPushButton:hover { background: #2563eb; }"
+      "QPushButton:pressed { background: #1d4ed8; }"));
+  auto *toolbarOuterLayout = new QVBoxLayout(toolbarFrame);
+  toolbarOuterLayout->setContentsMargins(8, 8, 8, 8);
+  toolbarOuterLayout->setSpacing(6);
+
+  auto *buttonRow = new QHBoxLayout;
+  buttonRow->setSpacing(6);
 
   auto *selectModeButton = new QPushButton(QStringLiteral("选择"), toolbarFrame);
   auto *drawRoiButton = new QPushButton(QStringLiteral("框选 ROI"), toolbarFrame);
@@ -444,44 +485,82 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   auto *startPreviewButton = new QPushButton(QStringLiteral("开始实时采图"), toolbarFrame);
   auto *stopPreviewButton = new QPushButton(QStringLiteral("停止采图"), toolbarFrame);
   toggleFovButton_ = new QPushButton(QStringLiteral("隐藏 FOV 640x360"), toolbarFrame);
-  cameraModeValueLabel_ = new QLabel(QStringLiteral("--"), toolbarFrame);
-  cameraStatusToolbarValueLabel_ = new QLabel(QStringLiteral("未启动"), toolbarFrame);
-  fovInfoValueLabel_ = new QLabel(QStringLiteral("640 x 360"), toolbarFrame);
-  cursorPositionValueLabel_ = new QLabel(QStringLiteral("X=0.0 Y=0.0"), toolbarFrame);
-  zoomValueLabel_ = new QLabel(QStringLiteral("缩放 100%"), toolbarFrame);
+  auto *gestureHelpButton = new QPushButton(QStringLiteral("? 操作提示"), toolbarFrame);
+  gestureHelpButton->setToolTip(QStringLiteral("触控板/鼠标操作说明"));
+  gestureHelpButton->setStyleSheet(QStringLiteral(
+      "QPushButton { background: #1e293b; color: #facc15; border: 1px solid #facc15; border-radius: 8px; "
+      "  padding: 5px 12px; min-height: 26px; font-weight: 700; }"
+      "QPushButton:hover { background: #facc15; color: #0f172a; }"));
 
-  toolbarLayout->addWidget(selectModeButton);
-  toolbarLayout->addWidget(drawRoiButton);
-  toolbarLayout->addWidget(drawMarkButton);
-  toolbarLayout->addWidget(fitViewButton);
-  toolbarLayout->addWidget(startPreviewButton);
-  toolbarLayout->addWidget(stopPreviewButton);
-  toolbarLayout->addWidget(toggleFovButton_);
-  toolbarLayout->addStretch();
-  toolbarLayout->addWidget(cursorPositionValueLabel_);
-  toolbarLayout->addSpacing(8);
-  toolbarLayout->addWidget(zoomValueLabel_);
-  toolbarLayout->addSpacing(8);
-  toolbarLayout->addWidget(new QLabel(QStringLiteral("相机模式"), toolbarFrame));
-  toolbarLayout->addWidget(cameraModeValueLabel_);
-  toolbarLayout->addSpacing(8);
-  toolbarLayout->addWidget(new QLabel(QStringLiteral("FOV"), toolbarFrame));
-  toolbarLayout->addWidget(fovInfoValueLabel_);
-  toolbarLayout->addSpacing(8);
-  toolbarLayout->addWidget(new QLabel(QStringLiteral("状态"), toolbarFrame));
-  toolbarLayout->addWidget(cameraStatusToolbarValueLabel_);
+  auto *settingsButton = new QPushButton(QStringLiteral("⚙ 系统设置"), toolbarFrame);
+  settingsButton->setStyleSheet(QStringLiteral(
+      "QPushButton { background: #1e3a5f; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; "
+      "  padding: 5px 14px; min-height: 26px; }"
+      "QPushButton:hover { background: #2563eb; }"));
 
+  buttonRow->addWidget(selectModeButton);
+  buttonRow->addWidget(drawRoiButton);
+  buttonRow->addWidget(drawMarkButton);
+  buttonRow->addWidget(fitViewButton);
+  buttonRow->addWidget(startPreviewButton);
+  buttonRow->addWidget(stopPreviewButton);
+  buttonRow->addWidget(toggleFovButton_);
+  buttonRow->addStretch();
+  buttonRow->addWidget(settingsButton);
+  buttonRow->addWidget(gestureHelpButton);
+
+  auto *statusRow = new QHBoxLayout;
+  statusRow->setSpacing(4);
+
+  auto makeStatusChip = [toolbarFrame](const QString &label, QLabel *&valueLabel, const QString &initialValue) {
+    auto *chip = new QFrame(toolbarFrame);
+    chip->setStyleSheet(QStringLiteral(
+        "QFrame { background: #1e293b; border: 1px solid #334155; border-radius: 6px; }"
+        "QLabel { color: #cbd5e1; }"));
+    auto *chipLayout = new QHBoxLayout(chip);
+    chipLayout->setContentsMargins(8, 3, 8, 3);
+    chipLayout->setSpacing(4);
+    auto *labelWidget = new QLabel(label, chip);
+    labelWidget->setStyleSheet(QStringLiteral("color: #64748b; font-size: 11px;"));
+    valueLabel = new QLabel(initialValue, chip);
+    valueLabel->setStyleSheet(QStringLiteral("color: #e2e8f0; font-size: 11px; font-weight: 600;"));
+    valueLabel->setMinimumWidth(70);
+    valueLabel->setAlignment(Qt::AlignCenter);
+    chipLayout->addWidget(labelWidget);
+    chipLayout->addWidget(valueLabel);
+    return chip;
+  };
+
+  auto *posChip = makeStatusChip(QStringLiteral("坐标"), cursorPositionValueLabel_, QStringLiteral("X=0.0 Y=0.0"));
+  auto *zoomChip = makeStatusChip(QStringLiteral("缩放"), zoomValueLabel_, QStringLiteral("100%"));
+  auto *camModeChip = makeStatusChip(QStringLiteral("相机模式"), cameraModeValueLabel_, QStringLiteral("--"));
+  auto *fovChip = makeStatusChip(QStringLiteral("FOV"), fovInfoValueLabel_, QStringLiteral("640 x 360"));
+  auto *statusChip = makeStatusChip(QStringLiteral("状态"), cameraStatusToolbarValueLabel_, QStringLiteral("未启动"));
+
+  statusRow->addWidget(posChip);
+  statusRow->addWidget(zoomChip);
+  statusRow->addWidget(camModeChip);
+  statusRow->addWidget(fovChip);
+  statusRow->addWidget(statusChip);
+  statusRow->addStretch();
+
+  toolbarOuterLayout->addLayout(buttonRow);
+  toolbarOuterLayout->addLayout(statusRow);
   parentLayout->addWidget(toolbarFrame);
 
   auto *graphicsGroupBox = new QGroupBox(QStringLiteral("CAD 拼接工位图"), this);
+  graphicsGroupBox->setStyleSheet(QStringLiteral(
+      "QGroupBox { color: #cbd5e1; font-weight: 600; border: 1px solid #334155; border-radius: 10px; "
+      "  margin-top: 12px; padding-top: 16px; }"
+      "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color: #cbd5e1; }"));
   auto *graphicsLayout = new QGridLayout(graphicsGroupBox);
   graphicsLayout->setContentsMargins(8, 8, 8, 8);
   graphicsLayout->setSpacing(0);
 
   auto *cornerLabel = new QLabel(QStringLiteral("XY"), graphicsGroupBox);
   cornerLabel->setAlignment(Qt::AlignCenter);
-  cornerLabel->setMinimumSize(40, 28);
-  cornerLabel->setStyleSheet(QStringLiteral("background: #111827; color: #cbd5e1; border-right: 1px solid #334155;"));
+  cornerLabel->setMinimumSize(32, 32);
+  cornerLabel->setStyleSheet(QStringLiteral("background: #0f172a; color: #cbd5e1; border-right: 1px solid #334155; border-bottom: 1px solid #334155;"));
 
   topRulerWidget_ = new CadRulerWidget(Qt::Horizontal, graphicsGroupBox);
   leftRulerWidget_ = new CadRulerWidget(Qt::Vertical, graphicsGroupBox);
@@ -517,6 +596,25 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   connect(startPreviewButton, &QPushButton::clicked, this, &MainWindow::startCameraPreview);
   connect(stopPreviewButton, &QPushButton::clicked, this, &MainWindow::stopCameraPreview);
   connect(toggleFovButton_, &QPushButton::clicked, this, &MainWindow::toggleFovOverlay);
+  connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
+  connect(gestureHelpButton, &QPushButton::clicked, this, [this] {
+    QMessageBox::information(this, QStringLiteral("CAD 画布操作说明"),
+      QStringLiteral("触控板操作：\n"
+                     "  • 双指滑动 → 平移/拖拽画布\n"
+                     "  • 双指捏合 → 缩放画布\n"
+                     "  • 单指点击拖拽 → 框选 ROI / Mark 区域\n"
+                     "\n"
+                     "鼠标操作：\n"
+                     "  • 鼠标中键拖拽 → 平移画布\n"
+                     "  • 滚轮滚动 → 缩放画布\n"
+                     "  • 左键拖拽 → 框选 ROI / Mark 区域\n"
+                     "\n"
+                     "模式切换：\n"
+                     "  • 点击「选择」→ 浏览/拖动已有物件\n"
+                     "  • 点击「框选 ROI」→ 在画布中拖拽生成 ROI\n"
+                     "  • 点击「框选 Mark」→ 在画布中拖拽生成 Mark\n"
+                     "  • 点击「适配视图」→ 恢复最佳视图"));
+  });
   connect(workbenchGraphicsView_, &CadGraphicsView::cursorScenePositionChanged, this,
           &MainWindow::updateCursorCoordinate);
   connect(workbenchGraphicsView_, &CadGraphicsView::viewTransformChanged, this, [this] {
@@ -528,29 +626,41 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
 }
 
 void MainWindow::buildRightPanel(QBoxLayout *parentLayout) {
-  auto *summaryGroupBox = new QGroupBox(QStringLiteral("程序概览"), this);
-  auto *summaryLayout = new QFormLayout(summaryGroupBox);
-  programNameValueLabel_ = new QLabel(QStringLiteral("--"), summaryGroupBox);
-  programPathValueLabel_ = new QLabel(QStringLiteral("--"), summaryGroupBox);
-  programPathValueLabel_->setWordWrap(true);
-  programAiModelValueLabel_ = new QLabel(QStringLiteral("--"), summaryGroupBox);
-  markCountValueLabel_ = new QLabel(QStringLiteral("0"), summaryGroupBox);
-  roiCountValueLabel_ = new QLabel(QStringLiteral("0"), summaryGroupBox);
-  motionStatusValueLabel_ = new QLabel(QStringLiteral("运行就绪"), summaryGroupBox);
-  cameraDeviceValueLabel_ = new QLabel(QStringLiteral("0"), summaryGroupBox);
-  cameraStatusDetailValueLabel_ = new QLabel(QStringLiteral("未启动"), summaryGroupBox);
-  summaryLayout->addRow(QStringLiteral("程序名称"), programNameValueLabel_);
-  summaryLayout->addRow(QStringLiteral("程序路径"), programPathValueLabel_);
-  summaryLayout->addRow(QStringLiteral("AI 模型"), programAiModelValueLabel_);
-  summaryLayout->addRow(QStringLiteral("Mark 数量"), markCountValueLabel_);
-  summaryLayout->addRow(QStringLiteral("ROI 数量"), roiCountValueLabel_);
-  summaryLayout->addRow(QStringLiteral("运控状态"), motionStatusValueLabel_);
-  summaryLayout->addRow(QStringLiteral("设备索引"), cameraDeviceValueLabel_);
-  summaryLayout->addRow(QStringLiteral("相机状态"), cameraStatusDetailValueLabel_);
-  parentLayout->addWidget(summaryGroupBox);
-
   auto *stackFrame = new QFrame(this);
-  stackFrame->setStyleSheet(QStringLiteral("QFrame { background: #ffffff; border: 1px solid #d0d5dd; border-radius: 14px; }"));
+  stackFrame->setStyleSheet(QStringLiteral(
+      "QFrame#stackFrame { background: #0f172a; border: 1px solid #334155; border-radius: 14px; }"
+      "QGroupBox { color: #e2e8f0; font-weight: 600; border: 1px solid #334155; border-radius: 10px; "
+      "  margin-top: 12px; padding-top: 16px; }"
+      "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color: #cbd5e1; }"
+      "QLabel { color: #e2e8f0; min-height: 20px; }"
+      "QComboBox { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; "
+      "  padding: 5px 10px; min-height: 28px; }"
+      "QComboBox::drop-down { border: none; width: 20px; }"
+      "QComboBox QAbstractItemView { background: #1e293b; color: #e2e8f0; "
+      "  selection-background-color: #2563eb; border: 1px solid #334155; }"
+      "QLineEdit { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; "
+      "  padding: 5px 10px; min-height: 28px; }"
+      "QDoubleSpinBox { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; "
+      "  padding: 5px 10px; min-height: 28px; }"
+      "QPushButton { background: #1e3a5f; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; "
+      "  padding: 6px 14px; min-height: 28px; }"
+      "QPushButton:hover { background: #2563eb; }"
+      "QPushButton:pressed { background: #1d4ed8; }"
+      "QTableWidget { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; "
+      "  gridline-color: #1e293b; font-size: 13px; }"
+      "QTableWidget::item { padding: 6px 10px; }"
+      "QTableWidget::item:selected { background: #1e3a5f; color: #f8fafc; }"
+      "QHeaderView::section { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; "
+      "  padding: 6px 10px; font-weight: 600; font-size: 12px; }"
+      "QListWidget { background: #0f172a; color: #e2e8f0; border: none; font-size: 13px; }"
+      "QListWidget::item { padding: 10px 14px; }"
+      "QListWidget::item:selected { background: #1e3a5f; color: #f8fafc; }"
+      "QListWidget::item:hover { background: #162033; }"
+      "QProgressBar { background: #1e293b; border: 1px solid #334155; border-radius: 4px; "
+      "  text-align: center; color: #e2e8f0; min-height: 18px; }"
+      "QProgressBar::chunk { background: #2563eb; border-radius: 3px; }"
+      "QFormLayout { spacing: 12px; }"));
+  stackFrame->setObjectName(QStringLiteral("stackFrame"));
   auto *stackLayout = new QHBoxLayout(stackFrame);
   stackLayout->setContentsMargins(10, 10, 10, 10);
   stackLayout->setSpacing(10);
@@ -571,24 +681,24 @@ void MainWindow::buildRightPanel(QBoxLayout *parentLayout) {
   buildMarkPage();
   buildTemplatePage();
 
-  auto *overviewGroupBox = new QGroupBox(QStringLiteral("运行日志"), this);
-  auto *overviewLayout = new QVBoxLayout(overviewGroupBox);
-  operationLogTextEdit_ = new QTextEdit(overviewGroupBox);
-  operationLogTextEdit_->setReadOnly(true);
-  overviewLayout->addWidget(operationLogTextEdit_);
-  parentLayout->addWidget(overviewGroupBox, 1);
-
   connect(toolSelectorListWidget_, &QListWidget::currentRowChanged, this, &MainWindow::setCurrentPage);
 }
 
-void MainWindow::buildOverviewPage() {}
-
 void MainWindow::buildRoiPage() {
-  auto *page = new QWidget(toolStackedWidget_);
+  auto *scrollArea = new QScrollArea(toolStackedWidget_);
+  scrollArea->setWidgetResizable(true);
+  scrollArea->setFrameShape(QFrame::NoFrame);
+  scrollArea->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; } QScrollBar:vertical { background: #0f172a; width: 8px; } QScrollBar::handle:vertical { background: #334155; border-radius: 4px; min-height: 24px; } QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"));
+
+  auto *page = new QWidget(scrollArea);
   auto *layout = new QVBoxLayout(page);
+  layout->setContentsMargins(8, 8, 8, 8);
+  layout->setSpacing(10);
 
   auto *toolGroupBox = new QGroupBox(QStringLiteral("ROI 绘制与工艺设置"), page);
   auto *toolLayout = new QFormLayout(toolGroupBox);
+  toolLayout->setSpacing(10);
+  toolLayout->setContentsMargins(12, 16, 12, 12);
   roiNameLineEdit_ = new QLineEdit(toolGroupBox);
   roiNameLineEdit_->setPlaceholderText(QStringLiteral("例如 Inspect-1"));
   roiShapeComboBox_ = new QComboBox(toolGroupBox);
@@ -637,9 +747,11 @@ void MainWindow::buildRoiPage() {
   roiTableWidget_->setSelectionBehavior(QAbstractItemView::SelectRows);
   roiTableWidget_->setSelectionMode(QAbstractItemView::SingleSelection);
   roiTableWidget_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  roiTableWidget_->setMinimumHeight(140);
   layout->addWidget(roiTableWidget_, 1);
 
-  toolStackedWidget_->addWidget(page);
+  scrollArea->setWidget(page);
+  toolStackedWidget_->addWidget(scrollArea);
 
   connect(drawButton, &QPushButton::clicked, this, [this] { setCanvasMode(CanvasMode::DrawRoi); });
   connect(applyButton, &QPushButton::clicked, this, &MainWindow::applyRoiEditorToSelection);
@@ -654,11 +766,20 @@ void MainWindow::buildRoiPage() {
 }
 
 void MainWindow::buildMarkPage() {
-  auto *page = new QWidget(toolStackedWidget_);
+  auto *scrollArea = new QScrollArea(toolStackedWidget_);
+  scrollArea->setWidgetResizable(true);
+  scrollArea->setFrameShape(QFrame::NoFrame);
+  scrollArea->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; } QScrollBar:vertical { background: #0f172a; width: 8px; } QScrollBar::handle:vertical { background: #334155; border-radius: 4px; min-height: 24px; } QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"));
+
+  auto *page = new QWidget(scrollArea);
   auto *layout = new QVBoxLayout(page);
+  layout->setContentsMargins(8, 8, 8, 8);
+  layout->setSpacing(10);
 
   auto *toolGroupBox = new QGroupBox(QStringLiteral("Mark 工艺设置"), page);
   auto *toolLayout = new QFormLayout(toolGroupBox);
+  toolLayout->setSpacing(10);
+  toolLayout->setContentsMargins(12, 16, 12, 12);
   markNameLineEdit_ = new QLineEdit(toolGroupBox);
   markNameLineEdit_->setPlaceholderText(QStringLiteral("例如 Mark-Left"));
   markShapeComboBox_ = new QComboBox(toolGroupBox);
@@ -729,9 +850,11 @@ void MainWindow::buildMarkPage() {
   markTableWidget_->setSelectionBehavior(QAbstractItemView::SelectRows);
   markTableWidget_->setSelectionMode(QAbstractItemView::SingleSelection);
   markTableWidget_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  markTableWidget_->setMinimumHeight(140);
   layout->addWidget(markTableWidget_, 1);
 
-  toolStackedWidget_->addWidget(page);
+  scrollArea->setWidget(page);
+  toolStackedWidget_->addWidget(scrollArea);
 
   connect(drawButton, &QPushButton::clicked, this, [this] { setCanvasMode(CanvasMode::DrawMark); });
   connect(previewButton, &QPushButton::clicked, this, &MainWindow::previewMarkMatching);
@@ -746,11 +869,20 @@ void MainWindow::buildMarkPage() {
 }
 
 void MainWindow::buildTemplatePage() {
-  auto *page = new QWidget(toolStackedWidget_);
+  auto *scrollArea = new QScrollArea(toolStackedWidget_);
+  scrollArea->setWidgetResizable(true);
+  scrollArea->setFrameShape(QFrame::NoFrame);
+  scrollArea->setStyleSheet(QStringLiteral("QScrollArea { background: transparent; } QScrollBar:vertical { background: #0f172a; width: 8px; } QScrollBar::handle:vertical { background: #334155; border-radius: 4px; min-height: 24px; } QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"));
+
+  auto *page = new QWidget(scrollArea);
   auto *layout = new QVBoxLayout(page);
+  layout->setContentsMargins(8, 8, 8, 8);
+  layout->setSpacing(10);
 
   auto *templateGroupBox = new QGroupBox(QStringLiteral("模版编辑与读码调试"), page);
   auto *templateLayout = new QFormLayout(templateGroupBox);
+  templateLayout->setSpacing(10);
+  templateLayout->setContentsMargins(12, 16, 12, 12);
   templatePreviewValueLabel_ = new QLabel(QStringLiteral("当前未选择任何 Mark / ROI"), templateGroupBox);
   templatePreviewValueLabel_->setWordWrap(true);
   codeRegionLineEdit_ = new QLineEdit(templateGroupBox);
@@ -786,7 +918,8 @@ void MainWindow::buildTemplatePage() {
   layout->addLayout(buttonLayout);
   layout->addStretch();
 
-  toolStackedWidget_->addWidget(page);
+  scrollArea->setWidget(page);
+  toolStackedWidget_->addWidget(scrollArea);
 
   connect(testCodeButton, &QPushButton::clicked, this, &MainWindow::testCodeReading);
   connect(saveButton, &QPushButton::clicked, this, &MainWindow::saveCurrentProgram);
@@ -794,12 +927,10 @@ void MainWindow::buildTemplatePage() {
 }
 
 void MainWindow::appendLog(const QString &message) {
-  if (operationLogTextEdit_ == nullptr) {
-    return;
+  if (logWindow_ != nullptr) {
+    logWindow_->appendLog(message);
   }
 
-  const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"));
-  operationLogTextEdit_->append(QStringLiteral("[%1] %2").arg(timestamp, message));
   statusBar()->showMessage(message, 5000);
 }
 
@@ -819,27 +950,31 @@ void MainWindow::refreshStatusSummary() {
 
 void MainWindow::refreshProgramWidgets() {
   const auto currentProgram = programManager_.currentProgram();
+  auto setLabelText = [](QLabel *label, const QString &text) {
+    if (label != nullptr) label->setText(text);
+  };
+
   if (!currentProgram.has_value()) {
-    programNameValueLabel_->setText(QStringLiteral("--"));
-    programPathValueLabel_->setText(QStringLiteral("--"));
-    programAiModelValueLabel_->setText(QStringLiteral("--"));
-    markCountValueLabel_->setText(QStringLiteral("0"));
-    roiCountValueLabel_->setText(QStringLiteral("0"));
-    markTableWidget_->setRowCount(0);
-    roiTableWidget_->setRowCount(0);
-    codeRegionLineEdit_->clear();
+    setLabelText(programNameValueLabel_, QStringLiteral("--"));
+    setLabelText(programPathValueLabel_, QStringLiteral("--"));
+    setLabelText(programAiModelValueLabel_, QStringLiteral("--"));
+    setLabelText(markCountValueLabel_, QStringLiteral("0"));
+    setLabelText(roiCountValueLabel_, QStringLiteral("0"));
+    if (markTableWidget_ != nullptr) markTableWidget_->setRowCount(0);
+    if (roiTableWidget_ != nullptr) roiTableWidget_->setRowCount(0);
+    if (codeRegionLineEdit_ != nullptr) codeRegionLineEdit_->clear();
     refreshWorkbenchScene();
     refreshStatusSummary();
     return;
   }
 
-  programNameValueLabel_->setText(QString::fromStdString(currentProgram->name));
-  programPathValueLabel_->setText(currentProgram->filePath.empty() ? QStringLiteral("内存中的默认程序")
-                                                                   : QString::fromStdString(currentProgram->filePath));
-  programAiModelValueLabel_->setText(QString::fromStdString(currentProgram->aiModelPath));
-  markCountValueLabel_->setText(QString::number(currentProgram->marks.size()));
-  roiCountValueLabel_->setText(QString::number(currentProgram->rois.size()));
-  motionStatusValueLabel_->setText(motionStateText());
+  setLabelText(programNameValueLabel_, QString::fromStdString(currentProgram->name));
+  setLabelText(programPathValueLabel_, currentProgram->filePath.empty() ? QStringLiteral("内存中的默认程序")
+                                                                       : QString::fromStdString(currentProgram->filePath));
+  setLabelText(programAiModelValueLabel_, QString::fromStdString(currentProgram->aiModelPath));
+  setLabelText(markCountValueLabel_, QString::number(currentProgram->marks.size()));
+  setLabelText(roiCountValueLabel_, QString::number(currentProgram->rois.size()));
+  setLabelText(motionStatusValueLabel_, motionStateText());
 
   {
     const QSignalBlocker blocker(markTableWidget_);
@@ -877,7 +1012,7 @@ void MainWindow::refreshProgramWidgets() {
     }
   }
 
-  codeRegionLineEdit_->setText(QString::fromStdString(currentProgram->codeRegionName));
+  if (codeRegionLineEdit_ != nullptr) codeRegionLineEdit_->setText(QString::fromStdString(currentProgram->codeRegionName));
   refreshWorkbenchScene();
   refreshTableSelections();
   updateMarkEditorFromSelection();
@@ -960,14 +1095,20 @@ void MainWindow::refreshWorkbenchScene(const bool keepView) {
 void MainWindow::refreshCameraState() {
   cameraModeValueLabel_->setText(cameraModeText());
   const QString cameraStatusText = usbCamera_.isOpened() ? QStringLiteral("实时采图中") : QStringLiteral("未启动");
-  cameraStatusToolbarValueLabel_->setText(cameraStatusText);
-  cameraStatusDetailValueLabel_->setText(cameraStatusText);
-  cameraDeviceValueLabel_->setText(QString::number(cameraDeviceIndex_));
-  cameraStatusToolbarValueLabel_->setStyleSheet(
-      usbCamera_.isOpened() ? QStringLiteral("color: #067647; font-weight: 700;")
-                            : QStringLiteral("color: #667085; font-weight: 700;"));
-  cameraStatusDetailValueLabel_->setStyleSheet(cameraStatusToolbarValueLabel_->styleSheet());
-  fovInfoValueLabel_->setText(QStringLiteral("%1 x %2").arg(lastFrameSize_.width()).arg(lastFrameSize_.height()));
+  if (cameraStatusToolbarValueLabel_ != nullptr) cameraStatusToolbarValueLabel_->setText(cameraStatusText);
+  if (cameraStatusDetailValueLabel_ != nullptr) cameraStatusDetailValueLabel_->setText(cameraStatusText);
+  if (cameraDeviceValueLabel_ != nullptr) cameraDeviceValueLabel_->setText(QString::number(cameraDeviceIndex_));
+  if (cameraStatusToolbarValueLabel_ != nullptr) {
+    cameraStatusToolbarValueLabel_->setStyleSheet(
+        usbCamera_.isOpened() ? QStringLiteral("color: #067647; font-weight: 700;")
+                              : QStringLiteral("color: #667085; font-weight: 700;"));
+  }
+  if (cameraStatusDetailValueLabel_ != nullptr) {
+    cameraStatusDetailValueLabel_->setStyleSheet(usbCamera_.isOpened()
+                                                     ? QStringLiteral("color: #067647; font-weight: 700;")
+                                                     : QStringLiteral("color: #667085; font-weight: 700;"));
+  }
+  if (fovInfoValueLabel_ != nullptr) fovInfoValueLabel_->setText(QStringLiteral("%1 x %2").arg(lastFrameSize_.width()).arg(lastFrameSize_.height()));
   toggleFovButton_->setText(showFovOverlay_ ? QStringLiteral("隐藏 FOV %1x%2")
                                                   .arg(lastFrameSize_.width())
                                                   .arg(lastFrameSize_.height())
@@ -998,6 +1139,7 @@ void MainWindow::refreshTableSelections() {
 }
 
 void MainWindow::syncProgramFromEditors() {
+  if (codeRegionLineEdit_ == nullptr) return;
   updateProgram([this](ProgramModel &program) { program.codeRegionName = codeRegionLineEdit_->text().toStdString(); });
 }
 
@@ -1099,6 +1241,39 @@ void MainWindow::openMotionPanel() {
   motionControlDialog_->show();
   motionControlDialog_->raise();
   motionControlDialog_->activateWindow();
+}
+
+void MainWindow::openLogWindow() {
+  if (logWindow_ == nullptr) {
+    return;
+  }
+
+  if (!logWindow_->isVisible()) {
+    logWindow_->show();
+  } else {
+    logWindow_->raise();
+    logWindow_->activateWindow();
+  }
+}
+
+void MainWindow::openSettings() {
+  if (settingsDialog_ == nullptr) {
+    settingsDialog_ = new SettingsDialog(this);
+    connect(settingsDialog_, &QDialog::accepted, this, [this] {
+      appSettings_ = settingsDialog_->settings();
+      AppSettingsManager::save(appSettings_, projectFilePath(QStringLiteral("config/app_settings.json")).toStdString());
+
+      if (logWindow_ != nullptr) {
+        logWindow_->setPersistEnabled(appSettings_.persistLogs,
+                                      QString::fromStdString(appSettings_.logFilePath));
+      }
+
+      appendLog(QStringLiteral("系统设置已更新并保存。"));
+    });
+  }
+
+  settingsDialog_->setSettings(appSettings_);
+  settingsDialog_->exec();
 }
 
 void MainWindow::startCameraPreview() {

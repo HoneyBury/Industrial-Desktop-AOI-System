@@ -7,6 +7,13 @@
 #include <QPainter>
 #include <QScrollBar>
 
+namespace {
+constexpr int kRulerBreadth = 32;
+constexpr int kMajorTickLength = 14;
+constexpr int kMinorTickLength = 8;
+constexpr int kMinPixelsBetweenLabels = 38;
+} // namespace
+
 CadRulerWidget::CadRulerWidget(const Qt::Orientation orientation, QWidget *parent)
     : QWidget(parent), orientation_(orientation) {
   setAutoFillBackground(false);
@@ -30,7 +37,8 @@ void CadRulerWidget::paintEvent(QPaintEvent *event) {
   Q_UNUSED(event);
 
   QPainter painter(this);
-  painter.fillRect(rect(), QColor("#111827"));
+  painter.setRenderHint(QPainter::Antialiasing, false);
+  painter.fillRect(rect(), QColor("#0f172a"));
   painter.setPen(QColor("#334155"));
   painter.drawRect(rect().adjusted(0, 0, -1, -1));
 
@@ -40,47 +48,95 @@ void CadRulerWidget::paintEvent(QPaintEvent *event) {
 
   const QRectF visibleSceneRect = view_->mapToScene(view_->viewport()->rect()).boundingRect();
   const qreal step = tickStep();
+  const qreal minorStep = step / 5.0;
 
-  painter.setPen(QColor("#94a3b8"));
-  painter.setFont(QFont(QStringLiteral("Menlo"), 8));
+  QFont labelFont(QStringLiteral("SF Mono"), 9);
+  labelFont.setStyleHint(QFont::Monospace);
+  painter.setFont(labelFont);
 
   if (orientation_ == Qt::Horizontal) {
-    const qreal start = std::floor(visibleSceneRect.left() / step) * step;
+    const qreal start = std::floor(visibleSceneRect.left() / minorStep) * minorStep;
     const qreal end = visibleSceneRect.right();
-    for (qreal value = start; value <= end; value += step) {
+    int lastLabelX = -999;
+
+    for (qreal value = start; value <= end; value += minorStep) {
       const int x = view_->mapFromScene(QPointF(value, 0.0)).x();
-      painter.drawLine(x, height(), x, height() - 12);
-      painter.drawText(x + 3, 11, QString::number(value, 'f', 0));
+      if (x < 0 || x > width()) {
+        continue;
+      }
+
+      const bool isMajor = static_cast<int>(std::round(value / step)) * static_cast<int>(step) ==
+                           static_cast<int>(std::round(value));
+      if (isMajor) {
+        painter.setPen(QColor("#64748b"));
+        painter.drawLine(x, height(), x, height() - kMajorTickLength);
+
+        if (x - lastLabelX >= kMinPixelsBetweenLabels) {
+          painter.setPen(QColor("#cbd5e1"));
+          const QString text = QString::number(value, 'f', 0);
+          const int textX = x + 4;
+          const int textY = height() - kMajorTickLength - 3;
+          painter.drawText(textX, textY, text);
+          lastLabelX = x;
+        }
+      } else {
+        painter.setPen(QColor("#334155"));
+        painter.drawLine(x, height(), x, height() - kMinorTickLength);
+      }
     }
 
     if (!cursorScenePosition_.isNull()) {
       const int x = view_->mapFromScene(cursorScenePosition_).x();
-      painter.setPen(QColor("#facc15"));
+      painter.setPen(QPen(QColor("#facc15"), 1.5));
       painter.drawLine(x, 0, x, height());
     }
   } else {
-    const qreal start = std::floor(visibleSceneRect.top() / step) * step;
+    const qreal start = std::floor(visibleSceneRect.top() / minorStep) * minorStep;
     const qreal end = visibleSceneRect.bottom();
-    for (qreal value = start; value <= end; value += step) {
+    int lastLabelY = -999;
+
+    for (qreal value = start; value <= end; value += minorStep) {
       const int y = view_->mapFromScene(QPointF(0.0, value)).y();
-      painter.drawLine(width(), y, width() - 12, y);
-      painter.save();
-      painter.translate(2, y - 2);
-      painter.rotate(-90.0);
-      painter.drawText(0, 0, QString::number(value, 'f', 0));
-      painter.restore();
+      if (y < 0 || y > height()) {
+        continue;
+      }
+
+      const bool isMajor = static_cast<int>(std::round(value / step)) * static_cast<int>(step) ==
+                           static_cast<int>(std::round(value));
+      if (isMajor) {
+        painter.setPen(QColor("#64748b"));
+        painter.drawLine(width(), y, width() - kMajorTickLength, y);
+
+        if (y - lastLabelY >= kMinPixelsBetweenLabels) {
+          painter.setPen(QColor("#cbd5e1"));
+          const QString text = QString::number(value, 'f', 0);
+          painter.save();
+          painter.translate(width() - kMajorTickLength - 4, y + 3);
+          painter.rotate(-90.0);
+          painter.drawText(0, 0, text);
+          painter.restore();
+          lastLabelY = y;
+        }
+      } else {
+        painter.setPen(QColor("#334155"));
+        painter.drawLine(width(), y, width() - kMinorTickLength, y);
+      }
     }
 
     if (!cursorScenePosition_.isNull()) {
       const int y = view_->mapFromScene(cursorScenePosition_).y();
-      painter.setPen(QColor("#facc15"));
+      painter.setPen(QPen(QColor("#facc15"), 1.5));
       painter.drawLine(0, y, width(), y);
     }
   }
 }
 
 QSize CadRulerWidget::minimumSizeHint() const {
-  return orientation_ == Qt::Horizontal ? QSize(100, 26) : QSize(40, 100);
+  return orientation_ == Qt::Horizontal ? QSize(100, kRulerBreadth) : QSize(kRulerBreadth, 100);
+}
+
+QSize CadRulerWidget::sizeHint() const {
+  return minimumSizeHint();
 }
 
 qreal CadRulerWidget::tickStep() const {
@@ -89,6 +145,10 @@ qreal CadRulerWidget::tickStep() const {
   }
 
   const qreal pixelsPerUnit = view_->transform().m11();
+  if (pixelsPerUnit > 4.5) {
+    return 10.0;
+  }
+
   if (pixelsPerUnit > 3.2) {
     return 20.0;
   }

@@ -117,6 +117,15 @@ void CadGraphicsView::leaveEvent(QEvent *event) {
 
 void CadGraphicsView::wheelEvent(QWheelEvent *event) {
   constexpr qreal scaleFactor = 1.15;
+  constexpr qreal minZoom = 0.04;
+  constexpr qreal maxZoom = 12.0;
+
+  const qreal candidateZoom = zoomFactor_ * (event->angleDelta().y() > 0 ? scaleFactor : (1.0 / scaleFactor));
+  if (candidateZoom < minZoom || candidateZoom > maxZoom) {
+    event->accept();
+    return;
+  }
+
   if (event->angleDelta().y() > 0) {
     scale(scaleFactor, scaleFactor);
   } else {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "camera/UsbCamera.h"
+#include "config/AppSettings.h"
 #include "motion/VirtualMotionController.h"
 #include "program/ProgramManager.h"
 
@@ -14,7 +15,9 @@
 
 class CadGraphicsView;
 class CadRulerWidget;
+class LogWindow;
 class MotionControlDialog;
+class SettingsDialog;
 class QComboBox;
 class QDoubleSpinBox;
 class QGraphicsPixmapItem;
@@ -27,7 +30,6 @@ class QProgressBar;
 class QPushButton;
 class QStackedWidget;
 class QTableWidget;
-class QTextEdit;
 class QTimer;
 
 QT_BEGIN_NAMESPACE
@@ -54,7 +56,6 @@ private:
   void buildCentralUi();
   void buildLeftWorkbench(class QBoxLayout *parentLayout);
   void buildRightPanel(class QBoxLayout *parentLayout);
-  void buildOverviewPage();
   void buildRoiPage();
   void buildMarkPage();
   void buildTemplatePage();
@@ -71,6 +72,8 @@ private:
   void saveCurrentProgram();
   void openCameraConfig();
   void openMotionPanel();
+  void openLogWindow();
+  void openSettings();
   void startCameraPreview();
   void stopCameraPreview();
   void updateCameraFrame();
@@ -108,7 +111,10 @@ private:
   UsbCamera usbCamera_;
   VirtualMotionController virtualMotionController_;
   ProgramManager programManager_;
+  AppSettings appSettings_;
   MotionControlDialog *motionControlDialog_ {nullptr};
+  LogWindow *logWindow_ {nullptr};
+  SettingsDialog *settingsDialog_ {nullptr};
   QTimer *cameraTimer_ {nullptr};
   int cameraDeviceIndex_ {0};
   double cameraExposureMs_ {12.0};
@@ -168,7 +174,6 @@ private:
   QComboBox *roiShapeComboBox_ {nullptr};
   QLineEdit *codeRegionLineEdit_ {nullptr};
   QProgressBar *markPreviewProgressBar_ {nullptr};
-  QTextEdit *operationLogTextEdit_ {nullptr};
 };
 
 #endif

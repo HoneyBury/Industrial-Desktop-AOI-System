@@ -62,6 +62,7 @@ endif()
 
 add_library(aoi_core
   src/common/Logger.cpp
+  src/config/AppSettings.cpp
   src/camera/UsbCamera.cpp
   src/vision/CameraCalibrator.cpp
   src/vision/MarkDetector.cpp
@@ -110,6 +111,10 @@ if(AOI_HAS_QT)
     src/ui/CadRulerWidget.h
     src/ui/CameraCalibDialog.cpp
     src/ui/CameraCalibDialog.h
+    src/ui/LogWindow.cpp
+    src/ui/LogWindow.h
+    src/ui/SettingsDialog.cpp
+    src/ui/SettingsDialog.h
     src/ui/ProgramEditDialog.cpp
     src/ui/ProgramEditDialog.h
     src/ui/MarkEditDialog.cpp
