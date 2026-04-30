@@ -104,12 +104,18 @@ if(AOI_HAS_QT)
     src/ui/MainWindow.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.ui
+    src/ui/CadGraphicsView.cpp
+    src/ui/CadGraphicsView.h
+    src/ui/CadRulerWidget.cpp
+    src/ui/CadRulerWidget.h
     src/ui/CameraCalibDialog.cpp
     src/ui/CameraCalibDialog.h
     src/ui/ProgramEditDialog.cpp
     src/ui/ProgramEditDialog.h
     src/ui/MarkEditDialog.cpp
     src/ui/MarkEditDialog.h
+    src/ui/MotionControlDialog.cpp
+    src/ui/MotionControlDialog.h
     src/ui/OriginCalibDialog.cpp
     src/ui/OriginCalibDialog.h
     src/ui/MarkOffsetDialog.cpp

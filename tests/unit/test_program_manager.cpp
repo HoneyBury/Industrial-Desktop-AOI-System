@@ -11,7 +11,9 @@ TEST(ProgramManagerTest, CreatesDefaultProgramTemplate) {
   ASSERT_TRUE(manager.currentProgram().has_value());
   EXPECT_EQ(manager.currentProgram()->name, std::string("default_demo_program"));
   EXPECT_EQ(manager.currentProgram()->marks.size(), static_cast<std::size_t>(2));
-  EXPECT_EQ(manager.currentProgram()->rois.size(), static_cast<std::size_t>(1));
+  EXPECT_EQ(manager.currentProgram()->rois.size(), static_cast<std::size_t>(2));
+  EXPECT_EQ(manager.currentProgram()->marks.front().name, std::string("Mark-Left"));
+  EXPECT_EQ(manager.currentProgram()->rois.back().name, std::string("Code-Area"));
 }
 
 TEST(ProgramManagerTest, SavesAndLoadsProgramRoundTrip) {
@@ -28,7 +30,9 @@ TEST(ProgramManagerTest, SavesAndLoadsProgramRoundTrip) {
   EXPECT_EQ(loadResult.value.name, std::string("default_demo_program"));
   EXPECT_EQ(loadResult.value.aiModelPath, std::string("models/demo.onnx"));
   EXPECT_EQ(loadResult.value.marks.size(), static_cast<std::size_t>(2));
-  EXPECT_EQ(loadResult.value.rois.size(), static_cast<std::size_t>(1));
+  EXPECT_EQ(loadResult.value.rois.size(), static_cast<std::size_t>(2));
+  EXPECT_EQ(loadResult.value.marks.front().sampledColor, std::string("#ff4d4f"));
+  EXPECT_EQ(loadResult.value.rois.front().shape, RoiShape::Rectangle);
   EXPECT_EQ(loadResult.value.filePath, outputPath.string());
 
   std::filesystem::remove(outputPath);

@@ -5,23 +5,60 @@
   "codeRegionName": "qr_region_01",
   "marks": [
     {
+      "name": "Mark-Left",
       "x": 100.0,
       "y": 80.0,
-      "score": 1.0
+      "width": 56.0,
+      "height": 48.0,
+      "rotation": 0.0,
+      "score": 0.91,
+      "minimumScore": 0.82,
+      "previewScore": 0.88,
+      "colorTolerance": 16,
+      "sampledColor": "#ff4d4f",
+      "shape": "diamond",
+      "algorithm": "color_brush_template",
+      "enabled": true
     },
     {
+      "name": "Mark-Right",
       "x": 240.0,
       "y": 82.0,
-      "score": 1.0
+      "width": 44.0,
+      "height": 44.0,
+      "rotation": 0.0,
+      "score": 0.89,
+      "minimumScore": 0.80,
+      "previewScore": 0.86,
+      "colorTolerance": 12,
+      "sampledColor": "#ffffff",
+      "shape": "circle",
+      "algorithm": "binary_geometry",
+      "enabled": true
     }
   ],
   "rois": [
     {
+      "name": "Inspect-Top",
       "x": 20.0,
       "y": 20.0,
       "width": 120.0,
-      "height": 60.0
+      "height": 60.0,
+      "rotation": 0.0,
+      "threshold": 0.78,
+      "shape": "rectangle",
+      "enabled": true
+    },
+    {
+      "name": "Code-Area",
+      "x": 220.0,
+      "y": 40.0,
+      "width": 92.0,
+      "height": 92.0,
+      "rotation": 0.0,
+      "threshold": 0.83,
+      "shape": "circle",
+      "enabled": true
     }
   ]
 }
-
