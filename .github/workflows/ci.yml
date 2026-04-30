@@ -17,15 +17,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Detect Homebrew environment
+        shell: bash
         run: |
-          brew update
-          brew install cmake ninja qt opencv llvm
+          if [[ -x /opt/homebrew/bin/brew ]]; then
+            echo "BREW_BIN=/opt/homebrew/bin/brew" >> "$GITHUB_ENV"
+            echo "BREW_PREFIX=/opt/homebrew" >> "$GITHUB_ENV"
+            echo "BREW_ARCH=arm64" >> "$GITHUB_ENV"
+          else
+            echo "BREW_BIN=/usr/local/bin/brew" >> "$GITHUB_ENV"
+            echo "BREW_PREFIX=/usr/local" >> "$GITHUB_ENV"
+            echo "BREW_ARCH=x86_64" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [[ "$BREW_ARCH" == "arm64" ]]; then
+            arch -arm64 "$BREW_BIN" update
+            arch -arm64 "$BREW_BIN" install ninja qt opencv llvm
+          else
+            "$BREW_BIN" update
+            "$BREW_BIN" install ninja qt opencv llvm
+          fi
 
       - name: Export toolchain paths
+        shell: bash
         run: |
-          echo "PATH=$(brew --prefix qt)/bin:$(brew --prefix llvm)/bin:$PATH" >> "$GITHUB_ENV"
-          echo "CMAKE_PREFIX_PATH=$(brew --prefix qt):$(brew --prefix opencv):$(brew --prefix llvm)" >> "$GITHUB_ENV"
+          echo "PATH=$BREW_PREFIX/opt/qt/bin:$BREW_PREFIX/opt/llvm/bin:$PATH" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$BREW_PREFIX/opt/qt:$BREW_PREFIX/opt/opencv:$BREW_PREFIX/opt/llvm" >> "$GITHUB_ENV"
 
       - name: Configure
         run: cmake --preset default -DAOI_FETCH_GTEST=ON
@@ -38,4 +58,3 @@ jobs:
 
       - name: clang-tidy
         run: cmake --build build/default --target aoi_clang_tidy || true
-
