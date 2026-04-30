@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a defect in AOI workflow, UI, motion, vision, or CI
+about: 反馈 AOI 流程、界面、运动、视觉或 CI 相关缺陷
 title: '[Bug] '
 labels: bug
 assignees: ''
@@ -36,4 +36,3 @@ assignees: ''
 - log
 - screenshot
 - demo video
-

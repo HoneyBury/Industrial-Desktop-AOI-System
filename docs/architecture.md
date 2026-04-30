@@ -1,33 +1,29 @@
-# Architecture Overview
+# 系统架构总览
 
-## Project Positioning
+## 项目定位
 
-This repository demonstrates a desktop industrial AOI software architecture for interview and
-portfolio use. The system emulates a real AOI workstation with machine vision, motion control,
-inspection program management, database traceability, and AI deployment hooks.
+本仓库用于展示一个桌面级工业 AOI 软件的工程化架构。它不只是算法 Demo，而是尽量模拟真实 AOI 上位机在视觉、运动、程序管理、数据追溯、AI 部署和研发流程上的完整结构。
 
-## Layered Design
+## 分层设计
 
-- `UI Layer` handles operator workflow, program editing, calibration dialogs, and demo visibility.
-- `Application Layer` coordinates program lifecycle, inspection orchestration, and user actions.
-- `Domain Layer` encapsulates vision, motion, coordinate transformation, and inspection rules.
-- `Infrastructure Layer` integrates camera access, SQLite persistence, AI runtime, and CI/CD.
+- `UI 层`：负责操作员界面、程序编辑、标定对话框与展示交互
+- `应用层`：负责程序生命周期、检测流程编排与用户操作协调
+- `领域层`：封装视觉处理、运动控制、坐标转换与检测规则
+- `基础设施层`：负责相机接入、SQLite 持久化、AI 运行时与 CI/CD 支撑
 
-## Core Modules
+## 核心模块
 
-- `camera`: `ICamera` abstracts acquisition devices. `UsbCamera` currently uses a Mac webcam and is
-  designed to be extended by future `HikCamera` and `DahuaCamera` adapters.
-- `vision`: calibration, Mark detection, ROI extraction, QR reading, and coordinate mapping.
-- `motion`: `IMotionController` abstracts motion APIs; `VirtualMotionController` simulates X/Y/Z/R.
-- `program`: captures the persistent definition of an AOI recipe.
-- `database`: central entry point for program metadata and inspection records.
-- `ai`: isolates ONNX model loading and inference lifecycle from UI and vision workflows.
-- `ui`: Qt-based workstation shell and operation dialogs.
+- `camera`：`ICamera` 抽象采集设备，`UsbCamera` 当前使用 Mac 摄像头，后续可扩展为 `HikCamera`、`DahuaCamera`
+- `vision`：负责标定、Mark 检测、ROI 提取、二维码读取与坐标映射
+- `motion`：`IMotionController` 抽象运动控制接口，`VirtualMotionController` 模拟 X/Y/Z/R 四轴平台
+- `program`：定义 AOI 检测程序，也就是常说的检测配方或程序模板
+- `database`：管理程序元数据、检测记录与 AI 检测结果的存储入口
+- `ai`：隔离 ONNX 模型加载与推理生命周期，避免 UI 与算法强耦合
+- `ui`：基于 Qt 的桌面工作站外壳与操作对话框
 
-## Engineering Principles
+## 设计原则
 
-- Prefer interface-driven hardware abstraction.
-- Keep algorithm code testable without a GUI runtime.
-- Degrade gracefully when local hardware SDKs are unavailable.
-- Preserve a path from interview demo code to production-grade industrial integration.
-
+- 硬件能力优先通过接口抽象，而不是直接写死供应商 SDK
+- 关键算法逻辑应尽量能脱离 GUI 单独测试
+- 本地缺少工业硬件或 SDK 时，工程仍应能退化运行
+- 架构设计要保留从面试展示代码演进到真实工业项目原型的路径

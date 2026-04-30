@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dataset collection bootstrap script for AOI image capture."""
+"""AOI 图像采集脚本占位入口。"""
 
 from pathlib import Path
 
@@ -12,4 +12,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

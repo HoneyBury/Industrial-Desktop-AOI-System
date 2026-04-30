@@ -15,9 +15,9 @@ int main(int argc, char *argv[]) {
 #else
   (void)argc;
   (void)argv;
+  // 在缺少 Qt Widgets 时，至少保留一个可运行入口用于验证工程骨架。
   std::cout << "Industrial Desktop AOI System bootstrap build: Qt 6 not found, console mode only."
             << std::endl;
   return 0;
 #endif
 }
-

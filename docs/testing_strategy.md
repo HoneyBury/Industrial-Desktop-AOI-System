@@ -1,23 +1,22 @@
-# Testing Strategy
+# 测试策略
 
-## Test Pyramid
+## 测试金字塔
 
-- `Unit tests`: coordinate conversion, motion simulation, mark geometry, utility logic
-- `Integration tests`: program management, database wiring, inspection pipeline orchestration
-- `Future hardware-in-the-loop`: camera SDK and real motion card verification
+- `单元测试`：坐标转换、运动模拟、Mark 几何关系、工具类逻辑
+- `集成测试`：程序管理、数据库接线、检测流程编排
+- `后续硬件联调测试`：真实相机 SDK 与运动控制卡验证
 
-## Current Baseline
+## 当前测试基线
 
-- Coordinate transformer conversion tests
-- Virtual motion absolute and relative movement tests
-- Dual-Mark rotation calculation tests
-- Bootstrap inspection pipeline test
+- 坐标转换测试
+- 虚拟运动绝对 / 相对移动测试
+- 双 Mark 旋转角度计算测试
+- AOI 检测主流程最小集成测试
 
-## Expansion Plan
+## 后续扩展方向
 
-- calibration fixture regression cases
-- ROI/Mark image golden tests
-- program serialization tests
-- SQLite persistence tests
-- AI inference adapter contract tests
-
+- 标定样例回归测试
+- ROI / Mark 图像金样测试
+- 程序序列化测试
+- SQLite 持久化测试
+- AI 推理适配层契约测试

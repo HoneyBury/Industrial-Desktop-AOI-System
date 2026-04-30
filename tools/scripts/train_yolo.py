@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""YOLO training entry placeholder for future AOI defect models."""
+"""后续 AOI 缺陷模型训练入口占位文件。"""
 
 
 def main() -> None:
@@ -8,4 +8,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

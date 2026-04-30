@@ -1,4 +1,3 @@
-# Runtime Data
+# 运行时数据目录
 
-This directory stores local demo databases, exported reports, and other non-source runtime data.
-
+该目录用于存放本地 Demo 运行产生的数据库、导出报表以及其他不属于源码的运行期数据。

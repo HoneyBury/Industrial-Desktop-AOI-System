@@ -1,25 +1,23 @@
-# Development Workflow
+# 开发流程
 
-## End-to-End Flow
+## 端到端流程
 
-Issue -> feature branch -> commit -> Pull Request -> CI -> Code Review -> merge to `develop` ->
-release branch -> merge to `main` -> tag release
+Issue -> feature 分支 -> commit -> Pull Request -> CI 检查 -> Code Review -> 合并到 `develop` -> release 分支 -> 合并到 `main` -> tag 发布
 
-## Working Rules
+## 工作规则
 
-1. Start with a GitHub Issue or refine an existing one.
-2. Branch from `develop`.
-3. Keep changes scoped to one purpose.
-4. Use Conventional Commits.
-5. Add tests for logic changes.
-6. Pass CI before merge.
-7. Update docs for architecture, interface, or process changes.
+1. 从 GitHub Issue 开始，或者先补齐已有 Issue 的描述
+2. 从 `develop` 拉取开发分支
+3. 保持一次改动聚焦一个明确目标
+4. 使用 Conventional Commits
+5. 逻辑变更应同步补充测试
+6. 合并前必须通过 CI
+7. 架构、接口、流程发生变化时必须同步更新文档
 
-## Pull Request Expectations
+## Pull Request 期望
 
-- describe business purpose
-- summarize technical changes
-- provide test evidence
-- call out risks and compatibility impact
-- include screenshots or video for UI-visible changes
-
+- 说明业务背景
+- 总结技术改动
+- 提供测试证据
+- 说明风险与兼容性影响
+- 涉及界面变化时提供截图或视频

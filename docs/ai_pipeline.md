@@ -1,14 +1,12 @@
-# AI Pipeline
+# AI 流水线设计
 
-The AI subsystem is designed around a practical industrial workflow:
+AI 子系统按照较贴近工业项目的流程进行设计：
 
-1. collect defect images from the workstation
-2. label and curate datasets
-3. train YOLO models in Python
-4. export ONNX for desktop deployment
-5. load the ONNX model in the AOI workstation
-6. persist AI results with inspection records
+1. 从工作站采集缺陷图像
+2. 对数据进行标注与整理
+3. 使用 Python 训练 YOLO 模型
+4. 导出 ONNX 模型
+5. 在 AOI 桌面工作站中加载 ONNX 模型
+6. 将 AI 检测结果与检测记录一起持久化
 
-The repository currently includes script placeholders and a lightweight `AiInferencer` interface so
-the deployment contract is visible even before a real runtime such as ONNX Runtime is added.
-
+当前仓库已经包含脚本占位文件与轻量级 `AiInferencer` 接口，目的是先把“训练到部署”的工程契约表达清楚，后续再替换为真实推理运行时实现，例如 ONNX Runtime。

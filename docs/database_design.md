@@ -1,18 +1,17 @@
-# Database Design
+# 数据库设计
 
-Planned SQLite entities:
+当前计划中的 SQLite 主要实体包括：
 
-- inspection program
-- Mark definitions
-- ROI definitions
-- calibration parameter snapshots
-- inspection records
-- AI inference results
+- 检测程序
+- Mark 定义
+- ROI 定义
+- 标定参数快照
+- 检测记录
+- AI 推理结果
 
-Design principles:
+设计原则如下：
 
-- keep recipe data versionable
-- keep inspection data traceable
-- separate configuration from runtime result data
-- support later export to MES / SPC style systems
-
+- 配方数据要可版本化
+- 检测结果要可追溯
+- 配置数据与运行结果数据要分离
+- 后续应具备向 MES / SPC 类系统扩展导出的可能

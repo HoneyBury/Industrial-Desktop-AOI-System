@@ -1,6 +1,6 @@
-# Code Review Checklist
+# 代码审查清单
 
-Reviewers should verify:
+代码评审时建议至少检查以下内容：
 
 - 是否符合模块边界
 - 是否有测试
@@ -10,10 +10,9 @@ Reviewers should verify:
 - 是否有异常处理
 - 是否更新文档
 
-## Additional AOI-Specific Focus
+## AOI 项目专项关注点
 
-- Does camera logic stay isolated from UI code?
-- Does motion logic avoid unsafe direct coupling with vision algorithms?
-- Are coordinate transform assumptions explicit and testable?
-- Are calibration, Mark, ROI, and AI paths traceable in logs?
-
+- 相机逻辑是否仍与 UI 层保持隔离
+- 运动控制逻辑是否与视觉算法产生了不安全的直接耦合
+- 坐标转换的假设是否明确、可验证、可测试
+- 标定、Mark、ROI、AI 相关流程是否具备日志可追踪性

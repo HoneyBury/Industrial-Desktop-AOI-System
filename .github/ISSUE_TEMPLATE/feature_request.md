@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Propose a new AOI, calibration, motion, AI, or workflow feature
+about: 提出新的 AOI、标定、运动、AI 或研发流程功能需求
 title: '[Feature] '
 labels: enhancement
 assignees: ''
@@ -29,4 +29,3 @@ assignees: ''
 - [ ] ui
 - [ ] tests
 - [ ] docs
-

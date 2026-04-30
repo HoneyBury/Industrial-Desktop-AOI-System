@@ -1,13 +1,11 @@
-# Calibration Design
+# 标定模块设计
 
-The calibration module models a typical industrial AOI flow:
+标定模块模拟典型工业 AOI 项目的相机标定流程，主要包括：
 
-- chessboard image acquisition
-- camera intrinsic parameter estimation
-- distortion compensation
-- pixel-to-millimeter mapping
-- persistence of calibration parameters
+- 棋盘格图像采集
+- 相机内参估计
+- 畸变补偿
+- 像素到毫米映射
+- 标定参数保存与复用
 
-In the bootstrap version, the calibrator returns a deterministic placeholder calibration result so
-that UI, program storage, and tests can evolve before full OpenCV calibration logic is introduced.
-
+当前工程骨架阶段，`CameraCalibrator` 返回的是可预测的占位标定结果。这样做的目的，是让 UI、程序管理、测试与流程文档可以先演进起来，后续再逐步替换为真实 OpenCV 标定实现。

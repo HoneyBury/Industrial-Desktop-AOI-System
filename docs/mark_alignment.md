@@ -1,15 +1,12 @@
-# Mark Alignment Design
+# Mark 对位设计
 
-Mark alignment is used to compensate translation and rotation between the nominal inspection
-program and the current product pose.
+Mark 对位用于补偿“标准检测程序坐标”与“当前产品实际姿态”之间的平移与旋转差异。
 
-Current focus:
+当前阶段重点包括：
 
-- dual-Mark reference definition
-- measured Mark pair acquisition
-- angle offset calculation
-- future translation compensation and origin refinement
+- 双 Mark 基准定义
+- 当前图像中的 Mark 点获取
+- 旋转角度偏移计算
+- 后续的平移补偿与原点精修预留
 
-The initial tests validate the core angle calculation to establish a reliable base for later
-template matching and sub-pixel refinement.
-
+当前测试已经验证了双 Mark 角度计算的核心逻辑，为后续模板匹配、亚像素定位和实际对位算法迭代打下基础。

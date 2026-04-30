@@ -1,30 +1,34 @@
-# Contributing Guide
+# 贡献指南
 
-## Goal
+## 目标
 
-This repository demonstrates an industrial AOI desktop software architecture with professional
-engineering workflow. Contributions should preserve modular boundaries, testability, and
-interview readability.
+本仓库用于展示工业 AOI 桌面软件的架构设计与工程化能力。所有贡献都应尽量保持以下特征：
 
-## Workflow
+- 模块边界清晰
+- 易于测试
+- 文档可读性强
+- 适合面试展示与后续继续扩展
 
-1. Create or refine a GitHub Issue.
-2. Branch from `develop` using `feature/*`, `bugfix/*`, or `hotfix/*`.
-3. Keep commits aligned with Conventional Commits.
-4. Open a Pull Request to `develop` unless the change is a hotfix.
-5. Ensure CI passes and update documentation when behavior changes.
+## 开发流程
 
-## Commit Convention
+1. 先创建或完善 GitHub Issue。
+2. 从 `develop` 拉出 `feature/*`、`bugfix/*` 或 `hotfix/*` 分支。
+3. 保持一次提交只解决一个相对清晰的问题。
+4. 使用 Conventional Commits 提交信息。
+5. 除紧急修复外，默认向 `develop` 发起 Pull Request。
+6. 行为变化、接口变化或架构变化时，同步更新文档。
 
-- `feat:` new feature
-- `fix:` bug fix
-- `docs:` documentation
-- `test:` tests
-- `refactor:` refactor
+## Commit 规范
+
+- `feat:` 新功能
+- `fix:` 修复问题
+- `docs:` 文档修改
+- `test:` 测试相关
+- `refactor:` 重构
 - `ci:` CI/CD
-- `chore:` maintenance
+- `chore:` 杂项维护
 
-## Local Build
+## 本地构建
 
 ```bash
 cmake --preset default
@@ -32,11 +36,19 @@ cmake --build --preset default
 ctest --preset default
 ```
 
-## Coding Rules
+## 编码规范
 
-- Follow C++20 and the repository `.clang-format` / `.clang-tidy`.
-- Keep UI, motion, vision, and data layers decoupled.
-- Prefer interfaces for hardware-related modules.
-- Add or update tests for logic changes.
-- Update `docs/` for workflow, architecture, or interface changes.
+- 遵循 C++20 规范以及仓库中的 `.clang-format` / `.clang-tidy`
+- 保持 UI、运动、视觉、数据层解耦
+- 涉及硬件的能力优先通过抽象接口建模
+- 逻辑变更应补充或更新测试
+- 文档、流程说明、架构说明默认使用中文
+- 代码注释只在必要时添加，并尽量使用简洁中文说明设计意图
 
+## Pull Request 要求
+
+- 说明业务背景和改动目的
+- 说明主要实现点
+- 提供测试结果
+- 说明风险与兼容性影响
+- 如涉及 UI，请提供截图或演示视频

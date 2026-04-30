@@ -1,6 +1,6 @@
 ---
 name: Task
-about: Track engineering tasks, refactors, documentation, or CI work
+about: 跟踪工程任务、重构、文档或 CI 工作
 title: '[Task] '
 labels: task
 assignees: ''
@@ -18,4 +18,3 @@ assignees: ''
 ## 备注
 
 -
-

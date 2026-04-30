@@ -1,16 +1,13 @@
-# Virtual Motion Controller
+# 虚拟运动控制器设计
 
-Because the current workstation does not include a physical motion card, the project simulates a
-four-axis X/Y/Z/R platform.
+由于当前开发环境没有真实运动控制卡，项目使用软件方式模拟一个 X/Y/Z/R 四轴平台。
 
-Supported bootstrap behaviors:
+当前支持的基础行为包括：
 
-- home
-- absolute move
-- relative move
-- emergency stop
-- position query
+- 回零
+- 绝对移动
+- 相对移动
+- 急停
+- 位置查询
 
-This lets interview demos show upper-computer control structure and motion lifecycle without
-binding the architecture to a specific hardware vendor.
-
+这样做可以让面试展示阶段重点呈现上位机控制结构、轴运动生命周期和模块解耦设计，而不被特定硬件供应商绑定。

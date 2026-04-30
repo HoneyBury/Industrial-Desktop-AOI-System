@@ -1,4 +1,3 @@
-# Models
+# 模型目录
 
-Store exported ONNX models, checkpoints, and deployment notes in this directory.
-
+该目录用于存放导出的 ONNX 模型、训练检查点以及部署说明。

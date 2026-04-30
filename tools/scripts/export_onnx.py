@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ONNX export bootstrap script."""
+"""ONNX 导出脚本占位入口。"""
 
 
 def main() -> None:
@@ -8,4 +8,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

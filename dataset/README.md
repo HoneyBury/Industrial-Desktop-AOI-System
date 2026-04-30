@@ -1,4 +1,3 @@
-# Dataset
+# 数据集目录
 
-Store captured raw images, labeled datasets, and training splits for AOI defect detection here.
-
+该目录用于存放 AOI 缺陷检测相关的原始图像、标注数据集以及训练数据划分结果。

@@ -37,5 +37,6 @@ execute_process(
   COMMAND_ECHO STDOUT)
 
 if(NOT TIDY_RESULT EQUAL 0)
+  # 初始化阶段允许 clang-tidy 报告问题，但不阻塞构建和 CI 主流程。
   message(WARNING "clang-tidy reported issues or environment-specific parsing errors; continuing.")
 endif()

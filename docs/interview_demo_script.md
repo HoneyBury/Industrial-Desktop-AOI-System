@@ -1,23 +1,21 @@
-# Interview Demo Script
+# 面试演示脚本
 
-## Opening
+## 开场介绍
 
-Introduce the project as a desktop industrial AOI software skeleton designed to reflect real
-machine vision and motion-control engineering practices, not only algorithm demos.
+先将项目定位为“桌面级工业 AOI 上位机工程骨架”，强调这不是单纯的算法小样，而是尽量模拟真实机器视觉与运动控制软件的工程结构。
 
-## Demo Path
+## 演示路径
 
-1. Show the repository structure and explain the modular split.
-2. Open the Qt main window and explain how Mac camera + virtual axes replace unavailable hardware.
-3. Walk through calibration, Mark alignment, ROI detection, program management, and AI pipeline docs.
-4. Show unit and integration tests.
-5. Show GitHub Actions, CodeQL, branch strategy, and code review checklist.
+1. 展示仓库目录结构，说明模块划分原因
+2. 打开 Qt 主界面，解释 Mac 摄像头和虚拟轴如何替代当前缺失的工业硬件
+3. 讲解标定、Mark 对位、ROI 检测、程序管理与 AI 流水线文档
+4. 展示单元测试与集成测试
+5. 展示 GitHub Actions、CodeQL、分支策略与代码审查清单
 
-## Closing
+## 收尾说明
 
-Explain the hardware upgrade path:
+最后强调后续硬件升级路径：
 
-- replace `UsbCamera` with Hikvision / Dahua adapters
-- replace `VirtualMotionController` with a real motion card adapter
-- replace stub inference with ONNX Runtime / TensorRT
-
+- 用海康 / 大华适配器替换 `UsbCamera`
+- 用真实运动控制卡适配器替换 `VirtualMotionController`
+- 用 ONNX Runtime / TensorRT 替换当前占位推理实现

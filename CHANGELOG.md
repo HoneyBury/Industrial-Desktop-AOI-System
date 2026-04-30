@@ -1,18 +1,17 @@
-# Changelog
+# 更新日志
 
-All notable changes to this project will be documented in this file.
+本文件用于记录项目的重要变更。
 
-The format is based on Keep a Changelog, and this project follows Semantic Versioning.
+格式参考 Keep a Changelog，版本策略遵循 Semantic Versioning。
 
 ## [Unreleased]
 
-### Added
+### 新增
 
-- Initial enterprise-grade repository skeleton
-- CMake bootstrap project with optional Qt/OpenCV/SQLite integration
-- AOI core module interfaces and minimal implementations
-- Qt main window and dialog placeholders
-- GoogleTest-compatible test bootstrap and baseline tests
-- GitHub Actions workflows for CI, CodeQL, and release packaging
-- Interview-oriented technical documentation set
-
+- 初始化企业级仓库骨架
+- 建立支持可选 Qt/OpenCV/SQLite 的 CMake 工程
+- 初始化 AOI 核心模块接口与最小实现
+- 初始化 Qt 主窗口与业务对话框骨架
+- 初始化兼容 GoogleTest 的测试工程与基线测试
+- 初始化 GitHub Actions CI、CodeQL 与 Release 工作流
+- 初始化适合面试展示的技术文档体系

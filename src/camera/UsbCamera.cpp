@@ -18,6 +18,7 @@ bool UsbCamera::open(const int index) {
   Logger::warning("UsbCamera failed to open device index " + std::to_string(index));
   return false;
 #else
+  // 无 OpenCV 时仅保留接口行为，方便 UI、流程和测试先联通。
   Logger::warning("OpenCV unavailable, UsbCamera runs in stub mode.");
   return index >= 0;
 #endif
@@ -58,4 +59,3 @@ CameraFrame UsbCamera::grabFrame() {
 }
 
 std::string UsbCamera::cameraName() const { return "Mac Webcam / USB Camera"; }
-

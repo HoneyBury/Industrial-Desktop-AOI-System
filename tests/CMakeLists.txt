@@ -14,6 +14,7 @@ elseif(AOI_FETCH_GTEST)
     URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip)
   FetchContent_MakeAvailable(googletest)
 else()
+  # 允许在离线或未安装 GTest 的环境中先跑通基础测试。
   message(STATUS "GoogleTest not found. Using offline bootstrap-compatible mini test harness.")
   set(AOI_USE_MINI_GTEST ON)
 

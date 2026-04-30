@@ -1,18 +1,20 @@
-# Security Policy
+# 安全策略
 
-## Supported Versions
+## 支持范围
 
-The repository is currently in bootstrap stage. Security fixes are applied on the latest default
-branch state first, then backported if necessary.
+当前仓库仍处于工程骨架阶段，安全修复默认优先在最新主线代码上处理，必要时再根据分支情况评估是否回补。
 
-## Reporting a Vulnerability
+## 漏洞反馈方式
 
-Please avoid opening public issues for sensitive problems. Report privately to the maintainer with:
+如果发现敏感安全问题，请不要直接公开提交 Issue，建议私下联系维护者，并尽量提供以下信息：
 
-- affected module
-- reproduction steps
-- potential impact
-- suggested remediation if available
+- 受影响模块
+- 复现步骤
+- 潜在影响范围
+- 如果已有初步修复建议，也请一并说明
 
-Acknowledge receipt within 3 business days and provide a remediation plan after triage.
+## 响应原则
 
+- 一般会在 3 个工作日内确认收到
+- 完成初步研判后，会给出修复计划或风险说明
+- 如问题影响较大，会优先安排修复并补充必要文档

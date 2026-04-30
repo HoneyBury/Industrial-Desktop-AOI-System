@@ -1,26 +1,29 @@
-# CI/CD Strategy
+# CI/CD 策略
 
-## CI
+## CI 流程
 
-`ci.yml` runs on pushes to `main` and `develop`, and on pull requests targeting those branches.
+`ci.yml` 会在以下场景触发：
 
-Stages:
+- push 到 `main`
+- push 到 `develop`
+- Pull Request 指向 `main` 或 `develop`
 
-- install Qt 6, OpenCV, CMake, Ninja
-- configure with CMake presets
-- build project
-- run CTest / GoogleTest
-- run non-blocking `clang-tidy`
+主要阶段包括：
 
-## Security
+- 安装 Qt 6、OpenCV、CMake、Ninja
+- 使用 CMake Preset 配置工程
+- 编译项目
+- 运行 CTest / GoogleTest
+- 运行非阻塞模式的 `clang-tidy`
 
-`codeql.yml` scans the C++ codebase on:
+## 安全扫描
 
-- push to `main` / `develop`
-- pull request to `main`
-- weekly scheduled scan
+`codeql.yml` 用于执行 C++ 代码安全扫描，触发场景包括：
 
-## Release
+- push 到 `main` / `develop`
+- Pull Request 指向 `main`
+- 每周定时扫描一次
 
-`release.yml` packages a macOS demo artifact when a tag matching `v*` is pushed.
+## 发布流程
 
+`release.yml` 会在推送符合 `v*` 规则的 Tag 时触发，并构建 macOS Demo artifact，便于做阶段性展示与归档。

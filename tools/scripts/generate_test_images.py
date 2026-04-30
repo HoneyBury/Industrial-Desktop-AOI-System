@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate synthetic AOI test images for unit and integration fixtures."""
+"""生成 AOI 合成测试图像的脚本占位入口。"""
 
 from pathlib import Path
 
@@ -12,4 +12,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

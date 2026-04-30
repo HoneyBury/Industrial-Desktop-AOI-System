@@ -1,6 +1,3 @@
-# Test Data
+# 测试数据目录
 
-This directory stores synthetic images, benchmark fixtures, and calibration samples used by
-unit and integration tests. The initial bootstrap tests only reference placeholder paths so the
-project can run without bundling large binary assets.
-
+该目录用于存放单元测试与集成测试使用的合成图像、基准夹具和标定样本。当前初始化测试只引用占位路径，因此仓库在没有大体积二进制测试资源的情况下也能先跑通。
