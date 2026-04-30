@@ -1,5 +1,6 @@
 #pragma once
 
+#include "camera/UsbCamera.h"
 #include "motion/VirtualMotionController.h"
 #include "program/ProgramManager.h"
 
@@ -9,6 +10,8 @@
 
 class QDoubleSpinBox;
 class QLabel;
+class QSpinBox;
+class QTimer;
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -24,11 +27,16 @@ public:
   ~MainWindow() override;
 
 private:
+  void bindCameraControls();
   void bindMotionControls();
   void bindProgramControls();
+  void refreshCameraPanel();
   void refreshStatus();
   void refreshMotionPanel();
   void refreshProgramSummary();
+  void startCameraPreview();
+  void stopCameraPreview();
+  void updateCameraPreview();
   void appendLog(const QString &message);
   void moveAxisAbsolute(MotionAxis axis);
   void moveAxisRelative(MotionAxis axis, double direction);
@@ -40,6 +48,7 @@ private:
   void saveCurrentProgram();
 
   [[nodiscard]] QString axisName(MotionAxis axis) const;
+  [[nodiscard]] QString cameraModeText() const;
   [[nodiscard]] QString projectRootPath() const;
   [[nodiscard]] QString projectFilePath(const QString &relativePath) const;
   [[nodiscard]] QDoubleSpinBox *targetSpinBox(MotionAxis axis) const;
@@ -48,7 +57,9 @@ private:
   [[nodiscard]] QLabel *axisStateLabel(MotionAxis axis) const;
 
   Ui::MainWindow *ui_;
+  UsbCamera usbCamera_;
   VirtualMotionController virtualMotionController_;
   ProgramManager programManager_;
+  QTimer *cameraTimer_ {nullptr};
 };
 #endif

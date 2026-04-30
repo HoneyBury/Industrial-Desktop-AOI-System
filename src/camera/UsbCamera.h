@@ -16,8 +16,10 @@ public:
 
 private:
   int deviceIndex_ {-1};
+#ifndef AOI_HAS_OPENCV
+  std::size_t stubFrameCounter_ {0};
+#endif
 #ifdef AOI_HAS_OPENCV
   cv::VideoCapture capture_;
 #endif
 };
-

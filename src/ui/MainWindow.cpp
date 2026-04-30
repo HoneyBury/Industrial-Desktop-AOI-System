@@ -9,9 +9,13 @@
 #include <QDoubleSpinBox>
 #include <QDir>
 #include <QFileInfo>
+#include <QImage>
 #include <QLabel>
+#include <QPixmap>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTextEdit>
+#include <QTimer>
 
 namespace {
 
@@ -24,20 +28,53 @@ QString formatAxisPosition(const MotionAxis axis, const std::optional<double> &p
                                : QStringLiteral("%1 mm").arg(position.value(), 0, 'f', 3);
 }
 
+QImage frameToImage(const CameraFrame &frame) {
+  if (frame.width <= 0 || frame.height <= 0 || frame.data.empty()) {
+    return {};
+  }
+
+  if (frame.pixelFormat == CameraPixelFormat::Gray8) {
+    return QImage(frame.data.data(), frame.width, frame.height, frame.width, QImage::Format_Grayscale8)
+        .copy();
+  }
+
+  const int bytesPerLine = frame.width * frame.channels;
+  QImage image(frame.data.data(), frame.width, frame.height, bytesPerLine, QImage::Format_RGB888);
+  if (frame.pixelFormat == CameraPixelFormat::Bgr24) {
+    return image.rgbSwapped().copy();
+  }
+
+  return image.copy();
+}
+
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui_(new Ui::MainWindow) {
   ui_->setupUi(this);
+  cameraTimer_ = new QTimer(this);
+  cameraTimer_->setInterval(80);
+
+  bindCameraControls();
   bindMotionControls();
   bindProgramControls();
   appendLog(QStringLiteral("系统启动完成，虚拟运动控制面板已加载。"));
   appendLog(QStringLiteral("当前演示环境：Mac 摄像头 + 虚拟 X/Y/Z/R 四轴平台。"));
   createDefaultProgram();
+  refreshCameraPanel();
   refreshStatus();
   refreshMotionPanel();
 }
 
-MainWindow::~MainWindow() { delete ui_; }
+MainWindow::~MainWindow() {
+  stopCameraPreview();
+  delete ui_;
+}
+
+void MainWindow::bindCameraControls() {
+  connect(ui_->startCameraButton, &QPushButton::clicked, this, &MainWindow::startCameraPreview);
+  connect(ui_->stopCameraButton, &QPushButton::clicked, this, &MainWindow::stopCameraPreview);
+  connect(cameraTimer_, &QTimer::timeout, this, &MainWindow::updateCameraPreview);
+}
 
 void MainWindow::bindMotionControls() {
   connect(ui_->xAbsMoveButton, &QPushButton::clicked, this,
@@ -81,12 +118,31 @@ void MainWindow::bindProgramControls() {
   connect(ui_->saveProgramButton, &QPushButton::clicked, this, &MainWindow::saveCurrentProgram);
 }
 
+void MainWindow::refreshCameraPanel() {
+  const bool cameraOpened = usbCamera_.isOpened();
+  ui_->cameraSourceValueLabel->setText(cameraModeText());
+  ui_->cameraStatusValueLabel->setText(cameraOpened ? QStringLiteral("预览中")
+                                                    : QStringLiteral("未启动"));
+  ui_->cameraStatusValueLabel->setStyleSheet(
+      cameraOpened ? QStringLiteral("color: #067647; font-weight: 700;")
+                   : QStringLiteral("color: #667085; font-weight: 700;"));
+  ui_->startCameraButton->setEnabled(!cameraOpened);
+  ui_->stopCameraButton->setEnabled(cameraOpened);
+  ui_->cameraIndexSpinBox->setEnabled(!cameraOpened);
+
+  if (!cameraOpened) {
+    ui_->cameraFrameInfoValueLabel->setText(QStringLiteral("--"));
+    ui_->cameraPreviewLabel->setPixmap(QPixmap());
+    ui_->cameraPreviewLabel->setText(QStringLiteral("点击“开始预览”以打开摄像头或模拟画面"));
+  }
+}
+
 void MainWindow::refreshStatus() {
   const QString stopState =
       virtualMotionController_.isStopped() ? QStringLiteral("已急停") : QStringLiteral("运行就绪");
+  const QString cameraState = usbCamera_.isOpened() ? QStringLiteral("预览中") : QStringLiteral("未启动");
   ui_->statusLabel->setText(
-      QStringLiteral("系统状态：%1 | 相机：Mac 摄像头模拟 | 运动：虚拟 X/Y/Z/R 轴")
-          .arg(stopState));
+      QStringLiteral("系统状态：%1 | 相机：%2 | 运动：虚拟 X/Y/Z/R 轴").arg(stopState, cameraState));
   ui_->motionStateValueLabel->setText(stopState);
   ui_->motionStateValueLabel->setStyleSheet(virtualMotionController_.isStopped()
                                                 ? QStringLiteral("color: #b42318; font-weight: 700;")
@@ -146,6 +202,55 @@ void MainWindow::refreshProgramSummary() {
   ui_->programAiModelValueLabel->setText(QString::fromStdString(currentProgram->aiModelPath));
   ui_->programMarksValueLabel->setText(QString::number(currentProgram->marks.size()));
   ui_->programRoisValueLabel->setText(QString::number(currentProgram->rois.size()));
+}
+
+void MainWindow::startCameraPreview() {
+  const int cameraIndex = ui_->cameraIndexSpinBox->value();
+  if (!usbCamera_.open(cameraIndex)) {
+    appendLog(QStringLiteral("相机打开失败，索引：%1。").arg(cameraIndex));
+    refreshCameraPanel();
+    refreshStatus();
+    return;
+  }
+
+  appendLog(QStringLiteral("相机预览已启动，模式：%1，索引：%2。")
+                .arg(cameraModeText())
+                .arg(cameraIndex));
+  cameraTimer_->start();
+  refreshCameraPanel();
+  updateCameraPreview();
+  refreshStatus();
+}
+
+void MainWindow::stopCameraPreview() {
+  if (!usbCamera_.isOpened()) {
+    refreshCameraPanel();
+    refreshStatus();
+    return;
+  }
+
+  cameraTimer_->stop();
+  usbCamera_.close();
+  appendLog(QStringLiteral("相机预览已停止。"));
+  refreshCameraPanel();
+  refreshStatus();
+}
+
+void MainWindow::updateCameraPreview() {
+  const CameraFrame frame = usbCamera_.grabFrame();
+  const QImage image = frameToImage(frame);
+  if (image.isNull()) {
+    ui_->cameraFrameInfoValueLabel->setText(QStringLiteral("取帧失败"));
+    ui_->cameraPreviewLabel->setPixmap(QPixmap());
+    ui_->cameraPreviewLabel->setText(QStringLiteral("当前没有可显示的画面"));
+    return;
+  }
+
+  ui_->cameraPreviewLabel->setText(QString());
+  ui_->cameraPreviewLabel->setPixmap(QPixmap::fromImage(image).scaled(
+      ui_->cameraPreviewLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+  ui_->cameraFrameInfoValueLabel->setText(
+      QStringLiteral("%1 x %2 / %3 ch").arg(frame.width).arg(frame.height).arg(frame.channels));
 }
 
 void MainWindow::appendLog(const QString &message) {
@@ -253,6 +358,14 @@ QString MainWindow::axisName(const MotionAxis axis) const {
   }
 
   return QStringLiteral("Unknown");
+}
+
+QString MainWindow::cameraModeText() const {
+#ifdef AOI_HAS_OPENCV
+  return QStringLiteral("Mac 摄像头实时采集");
+#else
+  return QStringLiteral("无 OpenCV 环境下的模拟预览");
+#endif
 }
 
 QString MainWindow::projectRootPath() const {

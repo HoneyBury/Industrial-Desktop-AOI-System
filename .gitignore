@@ -44,6 +44,7 @@ venv/
 # Runtime data
 /data/*.db
 /data/*.sqlite
+/data/active_demo_program.json
 /logs/
 
 # Model and dataset outputs
@@ -52,4 +53,3 @@ venv/
 /models/*.onnx
 /models/*.engine
 /models/checkpoints/
-
