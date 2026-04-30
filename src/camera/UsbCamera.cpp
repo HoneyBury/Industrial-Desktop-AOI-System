@@ -6,14 +6,41 @@
 
 #ifdef AOI_HAS_OPENCV
 #include <opencv2/imgproc.hpp>
+#include <opencv2/videoio.hpp>
 #endif
+
+void UsbCamera::setPreferredFrameSize(const int width, const int height) {
+  if (width > 0) {
+    preferredFrameWidth_ = width;
+  }
+
+  if (height > 0) {
+    preferredFrameHeight_ = height;
+  }
+}
 
 bool UsbCamera::open(const int index) {
   deviceIndex_ = index;
 
 #ifdef AOI_HAS_OPENCV
-  if (capture_.open(index)) {
-    Logger::info("UsbCamera opened device index " + std::to_string(index));
+  if (capture_.isOpened()) {
+    capture_.release();
+  }
+
+#ifdef __APPLE__
+  if (!capture_.open(index, cv::CAP_AVFOUNDATION)) {
+    Logger::warning("UsbCamera failed to open device via AVFoundation, fallback to CAP_ANY.");
+    capture_.open(index, cv::CAP_ANY);
+  }
+#else
+  capture_.open(index, cv::CAP_ANY);
+#endif
+
+  if (capture_.isOpened()) {
+    capture_.set(cv::CAP_PROP_FRAME_WIDTH, preferredFrameWidth_);
+    capture_.set(cv::CAP_PROP_FRAME_HEIGHT, preferredFrameHeight_);
+    Logger::info("UsbCamera opened device index " + std::to_string(index) + " with target size " +
+                 std::to_string(preferredFrameWidth_) + "x" + std::to_string(preferredFrameHeight_));
     return true;
   }
 
@@ -64,8 +91,8 @@ CameraFrame UsbCamera::grabFrame() {
     return {};
   }
 
-  constexpr int width = 640;
-  constexpr int height = 360;
+  const int width = preferredFrameWidth_ > 0 ? preferredFrameWidth_ : 640;
+  const int height = preferredFrameHeight_ > 0 ? preferredFrameHeight_ : 360;
   constexpr int channels = 3;
 
   CameraFrame frame;

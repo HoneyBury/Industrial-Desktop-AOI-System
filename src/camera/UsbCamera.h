@@ -8,6 +8,7 @@
 
 class UsbCamera final : public ICamera {
 public:
+  void setPreferredFrameSize(int width, int height);
   bool open(int index) override;
   void close() override;
   bool isOpened() const override;
@@ -16,6 +17,8 @@ public:
 
 private:
   int deviceIndex_ {-1};
+  int preferredFrameWidth_ {640};
+  int preferredFrameHeight_ {360};
 #ifndef AOI_HAS_OPENCV
   std::size_t stubFrameCounter_ {0};
 #endif

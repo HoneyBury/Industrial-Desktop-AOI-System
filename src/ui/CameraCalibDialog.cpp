@@ -61,6 +61,17 @@ CameraCalibDialog::CameraCalibDialog(QWidget *parent) : QDialog(parent) {
 
 void CameraCalibDialog::setDeviceIndex(const int deviceIndex) { deviceIndexSpinBox_->setValue(deviceIndex); }
 
+void CameraCalibDialog::setExposureTimeMs(const double exposureTimeMs) { exposureSpinBox_->setValue(exposureTimeMs); }
+
+void CameraCalibDialog::setGainValue(const double gainValue) { gainSpinBox_->setValue(gainValue); }
+
+void CameraCalibDialog::setResolutionPreset(const QString &preset) {
+  const int index = resolutionComboBox_->findText(preset);
+  if (index >= 0) {
+    resolutionComboBox_->setCurrentIndex(index);
+  }
+}
+
 int CameraCalibDialog::deviceIndex() const { return deviceIndexSpinBox_->value(); }
 
 double CameraCalibDialog::exposureTimeMs() const { return exposureSpinBox_->value(); }

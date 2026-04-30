@@ -7,6 +7,7 @@
 
 #ifdef AOI_HAS_QT_WIDGETS
 
+#include <QImage>
 #include <QMainWindow>
 #include <QPointer>
 #include <QString>
@@ -77,6 +78,7 @@ private:
   void startCameraPreview();
   void stopCameraPreview();
   void updateCameraFrame();
+  void toggleCodeCameraView();
   void toggleFovOverlay();
   void resetWorkbenchView();
   void setCanvasMode(CanvasMode mode);
@@ -120,8 +122,10 @@ private:
   double cameraExposureMs_ {12.0};
   double cameraGain_ {0.0};
   QString cameraResolutionPreset_ {QStringLiteral("1280 x 720")};
+  QImage lastCameraFrameImage_;
   QSize lastFrameSize_ {640, 360};
   bool showFovOverlay_ {true};
+  bool showCodeCameraView_ {false};
   bool workbenchViewInitialized_ {false};
   CanvasMode canvasMode_ {CanvasMode::Select};
   int selectedMarkIndex_ {-1};
@@ -132,6 +136,7 @@ private:
   CadRulerWidget *leftRulerWidget_ {nullptr};
   QGraphicsScene *workbenchScene_ {nullptr};
   QGraphicsPixmapItem *workbenchPixmapItem_ {nullptr};
+  QPushButton *toggleCodeCameraViewButton_ {nullptr};
   QGraphicsRectItem *fovRectItem_ {nullptr};
   QPushButton *toggleFovButton_ {nullptr};
   QLabel *statusSummaryValueLabel_ {nullptr};

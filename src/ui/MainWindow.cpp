@@ -32,6 +32,7 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -137,6 +138,51 @@ RoiShape roiShapeFromDisplayText(const QString &text) {
 
 double normalizeScore(const double value) {
   return std::clamp(value, 0.0, 1.0);
+}
+
+QImage cameraFrameToQImage(const CameraFrame &frame) {
+  if (frame.width <= 0 || frame.height <= 0 || frame.data.empty()) {
+    return {};
+  }
+
+  switch (frame.pixelFormat) {
+  case CameraPixelFormat::Rgb24: {
+    QImage image(frame.data.data(), frame.width, frame.height, frame.width * 3, QImage::Format_RGB888);
+    return image.copy();
+  }
+  case CameraPixelFormat::Bgr24: {
+    QImage image(frame.data.data(), frame.width, frame.height, frame.width * 3, QImage::Format_BGR888);
+    return image.copy();
+  }
+  case CameraPixelFormat::Gray8: {
+    QImage image(frame.data.data(), frame.width, frame.height, frame.width, QImage::Format_Grayscale8);
+    return image.copy();
+  }
+  }
+
+  return {};
+}
+
+QRectF workbenchFovRect(const QSize &frameSize) {
+  return QRectF(560.0, 720.0, std::clamp(static_cast<qreal>(frameSize.width()), 180.0, 820.0),
+                std::clamp(static_cast<qreal>(frameSize.height()), 120.0, 480.0));
+}
+
+QSize parseResolutionPreset(const QString &preset) {
+  const QStringList parts = preset.split('x', Qt::SkipEmptyParts);
+  if (parts.size() != 2) {
+    return {1280, 720};
+  }
+
+  bool widthOk = false;
+  bool heightOk = false;
+  const int width = parts[0].trimmed().toInt(&widthOk);
+  const int height = parts[1].trimmed().toInt(&heightOk);
+  if (!widthOk || !heightOk || width <= 0 || height <= 0) {
+    return {1280, 720};
+  }
+
+  return {width, height};
 }
 
 double calculatePreviewScore(const MarkPoint &mark) {
@@ -484,6 +530,7 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   auto *fitViewButton = new QPushButton(QStringLiteral("适配视图"), toolbarFrame);
   auto *startPreviewButton = new QPushButton(QStringLiteral("开始实时采图"), toolbarFrame);
   auto *stopPreviewButton = new QPushButton(QStringLiteral("停止采图"), toolbarFrame);
+  toggleCodeCameraViewButton_ = new QPushButton(QStringLiteral("读码相机视图"), toolbarFrame);
   toggleFovButton_ = new QPushButton(QStringLiteral("隐藏 FOV 640x360"), toolbarFrame);
   auto *gestureHelpButton = new QPushButton(QStringLiteral("? 操作提示"), toolbarFrame);
   gestureHelpButton->setToolTip(QStringLiteral("触控板/鼠标操作说明"));
@@ -504,6 +551,7 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   buttonRow->addWidget(fitViewButton);
   buttonRow->addWidget(startPreviewButton);
   buttonRow->addWidget(stopPreviewButton);
+  buttonRow->addWidget(toggleCodeCameraViewButton_);
   buttonRow->addWidget(toggleFovButton_);
   buttonRow->addStretch();
   buttonRow->addWidget(settingsButton);
@@ -595,6 +643,7 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   connect(fitViewButton, &QPushButton::clicked, this, &MainWindow::resetWorkbenchView);
   connect(startPreviewButton, &QPushButton::clicked, this, &MainWindow::startCameraPreview);
   connect(stopPreviewButton, &QPushButton::clicked, this, &MainWindow::stopCameraPreview);
+  connect(toggleCodeCameraViewButton_, &QPushButton::clicked, this, &MainWindow::toggleCodeCameraView);
   connect(toggleFovButton_, &QPushButton::clicked, this, &MainWindow::toggleFovOverlay);
   connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
   connect(gestureHelpButton, &QPushButton::clicked, this, [this] {
@@ -1072,14 +1121,46 @@ void MainWindow::refreshWorkbenchScene(const bool keepView) {
     }
   }
 
+  const QRectF fovRect = workbenchFovRect(lastFrameSize_);
+
+  auto *fovBackdrop = workbenchScene_->addRect(
+      fovRect.adjusted(6.0, 6.0, -6.0, -6.0),
+      QPen(QColor("#1e293b"), 1.5),
+      QBrush(showCodeCameraView_ ? QColor("#020617") : QColor(250, 204, 21, 14)));
+  fovBackdrop->setZValue(2.0);
+  fovBackdrop->setVisible(showFovOverlay_);
+
+  if (showCodeCameraView_) {
+    if (!lastCameraFrameImage_.isNull()) {
+      const QSize contentSize = fovRect.adjusted(8.0, 8.0, -8.0, -8.0).size().toSize();
+      const QImage scaledFrame =
+          lastCameraFrameImage_.scaled(contentSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+      auto *fovPixmapItem = workbenchScene_->addPixmap(QPixmap::fromImage(scaledFrame));
+      const QRectF contentRect = fovBackdrop->rect();
+      fovPixmapItem->setPos(contentRect.center().x() - scaledFrame.width() / 2.0,
+                            contentRect.center().y() - scaledFrame.height() / 2.0);
+      fovPixmapItem->setZValue(3.0);
+      fovPixmapItem->setVisible(showFovOverlay_);
+    } else {
+      auto *emptyText = workbenchScene_->addText(QStringLiteral("读码相机视图\n等待实时采图"));
+      emptyText->setDefaultTextColor(QColor("#cbd5e1"));
+      emptyText->setPos(fovBackdrop->rect().center().x() - 62.0, fovBackdrop->rect().center().y() - 26.0);
+      emptyText->setZValue(3.0);
+      emptyText->setVisible(showFovOverlay_);
+    }
+  }
+
   fovRectItem_ = workbenchScene_->addRect(
-      QRectF(560.0, 720.0, std::clamp(static_cast<qreal>(lastFrameSize_.width()), 180.0, 820.0),
-             std::clamp(static_cast<qreal>(lastFrameSize_.height()), 120.0, 480.0)),
-      QPen(QColor("#facc15"), 3, Qt::DashLine), QBrush(QColor(250, 204, 21, 14)));
+      fovRect,
+      QPen(QColor("#facc15"), 3, Qt::DashLine), QBrush(Qt::NoBrush));
   fovRectItem_->setVisible(showFovOverlay_);
-  auto *fovText = workbenchScene_->addText(QStringLiteral("实时 FOV"));
+  fovRectItem_->setZValue(4.0);
+  auto *fovText = workbenchScene_->addText(showCodeCameraView_ ? QStringLiteral("实时 FOV / 读码相机视图")
+                                                               : QStringLiteral("实时 FOV"));
   fovText->setDefaultTextColor(QColor("#fef08a"));
   fovText->setPos(fovRectItem_->rect().topLeft() + QPointF(8.0, -24.0));
+  fovText->setZValue(5.0);
+  fovText->setVisible(showFovOverlay_);
 
   if (!workbenchViewInitialized_ || !keepView) {
     workbenchGraphicsView_->fitSceneContent();
@@ -1115,6 +1196,10 @@ void MainWindow::refreshCameraState() {
                                             : QStringLiteral("显示 FOV %1x%2")
                                                   .arg(lastFrameSize_.width())
                                                   .arg(lastFrameSize_.height()));
+  if (toggleCodeCameraViewButton_ != nullptr) {
+    toggleCodeCameraViewButton_->setText(showCodeCameraView_ ? QStringLiteral("隐藏读码相机视图")
+                                                             : QStringLiteral("读码相机视图"));
+  }
   refreshStatusSummary();
 }
 
@@ -1212,6 +1297,9 @@ void MainWindow::saveCurrentProgram() {
 void MainWindow::openCameraConfig() {
   CameraCalibDialog dialog(this);
   dialog.setDeviceIndex(cameraDeviceIndex_);
+  dialog.setExposureTimeMs(cameraExposureMs_);
+  dialog.setGainValue(cameraGain_);
+  dialog.setResolutionPreset(cameraResolutionPreset_);
   if (dialog.exec() != QDialog::Accepted) {
     return;
   }
@@ -1281,6 +1369,9 @@ void MainWindow::startCameraPreview() {
     return;
   }
 
+  const QSize frameSize = parseResolutionPreset(cameraResolutionPreset_);
+  usbCamera_.setPreferredFrameSize(frameSize.width(), frameSize.height());
+
   if (!usbCamera_.open(cameraDeviceIndex_)) {
     appendLog(QStringLiteral("相机启动失败，索引=%1。").arg(cameraDeviceIndex_));
     refreshCameraState();
@@ -1301,6 +1392,7 @@ void MainWindow::stopCameraPreview() {
 
   cameraTimer_->stop();
   usbCamera_.close();
+  lastCameraFrameImage_ = QImage();
   appendLog(QStringLiteral("实时采图已停止。"));
   refreshCameraState();
   refreshWorkbenchScene();
@@ -1312,6 +1404,7 @@ void MainWindow::updateCameraFrame() {
     return;
   }
 
+  lastCameraFrameImage_ = cameraFrameToQImage(frame);
   lastFrameSize_ = QSize(frame.width, frame.height);
   refreshCameraState();
 
@@ -1327,6 +1420,14 @@ void MainWindow::updateCameraFrame() {
                                        : QStringLiteral("color: #dc2626; font-weight: 700;"));
   }
 
+  refreshWorkbenchScene();
+}
+
+void MainWindow::toggleCodeCameraView() {
+  showCodeCameraView_ = !showCodeCameraView_;
+  appendLog(showCodeCameraView_ ? QStringLiteral("已在 FOV 窗口内打开读码相机视图。")
+                                : QStringLiteral("已关闭 FOV 窗口内的读码相机视图。"));
+  refreshCameraState();
   refreshWorkbenchScene();
 }
 

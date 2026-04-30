@@ -16,6 +16,9 @@ public:
   explicit CameraCalibDialog(QWidget *parent = nullptr);
 
   void setDeviceIndex(int deviceIndex);
+  void setExposureTimeMs(double exposureTimeMs);
+  void setGainValue(double gainValue);
+  void setResolutionPreset(const QString &preset);
   [[nodiscard]] int deviceIndex() const;
   [[nodiscard]] double exposureTimeMs() const;
   [[nodiscard]] double gainValue() const;

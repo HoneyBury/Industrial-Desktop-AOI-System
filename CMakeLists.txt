@@ -16,6 +16,8 @@ option(AOI_ENABLE_GUI "Build Qt desktop UI when Qt 6 is available." ON)
 option(AOI_ENABLE_OPENCV "Enable OpenCV-backed camera and vision helpers when OpenCV is available." ON)
 option(AOI_ENABLE_SQLITE "Enable SQLite-backed database integration when SQLite3 is available." ON)
 option(AOI_FETCH_GTEST "Fetch GoogleTest when it is not installed." OFF)
+set(AOI_THIRD_PARTY_OPENCV_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/opencv"
+    CACHE PATH "Project-local OpenCV root directory.")
 
 include(CTest)
 include(GNUInstallDirs)
@@ -41,9 +43,12 @@ if(AOI_ENABLE_GUI)
 endif()
 
 if(AOI_ENABLE_OPENCV)
+  include(cmake/ResolveOpenCV.cmake)
+  aoi_resolve_opencv("${AOI_THIRD_PARTY_OPENCV_ROOT}")
   find_package(OpenCV QUIET COMPONENTS core imgproc videoio objdetect)
   if(OpenCV_FOUND)
     set(AOI_HAS_OPENCV ON)
+    message(STATUS "OpenCV enabled from: ${OpenCV_DIR}")
   else()
     # 当前项目允许在无 OpenCV 环境下先以占位实现通过配置和编译。
     message(STATUS "OpenCV not found. Camera and CV-backed code will use stub implementations.")
