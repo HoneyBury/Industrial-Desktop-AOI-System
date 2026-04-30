@@ -9,6 +9,7 @@
 
 struct ProgramModel {
   std::string name;
+  std::string filePath;
   std::string aiModelPath;
   std::string calibrationFilePath;
   std::string codeRegionName;
@@ -16,4 +17,3 @@ struct ProgramModel {
   std::vector<RoiRegion> rois;
   CameraCalibrationData calibrationData;
 };
-

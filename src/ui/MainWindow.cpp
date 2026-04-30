@@ -4,8 +4,11 @@
 
 #include "ui_MainWindow.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDoubleSpinBox>
+#include <QDir>
+#include <QFileInfo>
 #include <QLabel>
 #include <QPushButton>
 #include <QTextEdit>
@@ -26,8 +29,10 @@ QString formatAxisPosition(const MotionAxis axis, const std::optional<double> &p
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui_(new Ui::MainWindow) {
   ui_->setupUi(this);
   bindMotionControls();
+  bindProgramControls();
   appendLog(QStringLiteral("系统启动完成，虚拟运动控制面板已加载。"));
   appendLog(QStringLiteral("当前演示环境：Mac 摄像头 + 虚拟 X/Y/Z/R 四轴平台。"));
+  createDefaultProgram();
   refreshStatus();
   refreshMotionPanel();
 }
@@ -68,6 +73,12 @@ void MainWindow::bindMotionControls() {
 
   connect(ui_->emergencyStopButton, &QPushButton::clicked, this, &MainWindow::emergencyStopMotion);
   connect(ui_->resetStopButton, &QPushButton::clicked, this, &MainWindow::resetEmergencyStopMotion);
+}
+
+void MainWindow::bindProgramControls() {
+  connect(ui_->newProgramButton, &QPushButton::clicked, this, &MainWindow::createDefaultProgram);
+  connect(ui_->loadProgramButton, &QPushButton::clicked, this, &MainWindow::loadDefaultProgram);
+  connect(ui_->saveProgramButton, &QPushButton::clicked, this, &MainWindow::saveCurrentProgram);
 }
 
 void MainWindow::refreshStatus() {
@@ -115,6 +126,26 @@ void MainWindow::refreshMotionPanel() {
   ui_->emergencyStopButton->setEnabled(!virtualMotionController_.isStopped());
   ui_->resetStopButton->setEnabled(virtualMotionController_.isStopped());
   refreshStatus();
+}
+
+void MainWindow::refreshProgramSummary() {
+  const auto currentProgram = programManager_.currentProgram();
+  if (!currentProgram.has_value()) {
+    ui_->programNameValueLabel->setText(QStringLiteral("未加载"));
+    ui_->programFileValueLabel->setText(QStringLiteral("未关联文件"));
+    ui_->programAiModelValueLabel->setText(QStringLiteral("--"));
+    ui_->programMarksValueLabel->setText(QStringLiteral("0"));
+    ui_->programRoisValueLabel->setText(QStringLiteral("0"));
+    return;
+  }
+
+  ui_->programNameValueLabel->setText(QString::fromStdString(currentProgram->name));
+  ui_->programFileValueLabel->setText(
+      currentProgram->filePath.empty() ? QStringLiteral("内存中的默认程序")
+                                       : QString::fromStdString(currentProgram->filePath));
+  ui_->programAiModelValueLabel->setText(QString::fromStdString(currentProgram->aiModelPath));
+  ui_->programMarksValueLabel->setText(QString::number(currentProgram->marks.size()));
+  ui_->programRoisValueLabel->setText(QString::number(currentProgram->rois.size()));
 }
 
 void MainWindow::appendLog(const QString &message) {
@@ -166,6 +197,49 @@ void MainWindow::resetEmergencyStopMotion() {
   refreshMotionPanel();
 }
 
+void MainWindow::createDefaultProgram() {
+  const auto result = programManager_.createDefaultProgram();
+  if (result) {
+    appendLog(QStringLiteral("已创建默认 AOI 程序模板。"));
+  } else {
+    appendLog(QStringLiteral("默认程序创建失败：%1").arg(QString::fromStdString(result.message)));
+  }
+
+  refreshProgramSummary();
+}
+
+void MainWindow::loadDefaultProgram() {
+  const QString filePath = projectFilePath(QStringLiteral("config/default_program.json"));
+  const auto result = programManager_.loadProgram(filePath.toStdString());
+  if (result) {
+    appendLog(QStringLiteral("已从 %1 加载程序。").arg(filePath));
+  } else {
+    appendLog(QStringLiteral("程序加载失败：%1").arg(QString::fromStdString(result.message)));
+  }
+
+  refreshProgramSummary();
+}
+
+void MainWindow::saveCurrentProgram() {
+  const QString filePath = projectFilePath(QStringLiteral("data/active_demo_program.json"));
+  QDir().mkpath(QFileInfo(filePath).absolutePath());
+
+  const auto result = programManager_.saveProgram(filePath.toStdString());
+  if (result) {
+    if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+      ProgramModel updatedProgram = *currentProgram;
+      updatedProgram.filePath = filePath.toStdString();
+      programManager_.createProgram(updatedProgram);
+    }
+
+    appendLog(QStringLiteral("当前程序已保存到 %1。").arg(filePath));
+  } else {
+    appendLog(QStringLiteral("程序保存失败：%1").arg(QString::fromStdString(result.message)));
+  }
+
+  refreshProgramSummary();
+}
+
 QString MainWindow::axisName(const MotionAxis axis) const {
   switch (axis) {
   case MotionAxis::X:
@@ -179,6 +253,30 @@ QString MainWindow::axisName(const MotionAxis axis) const {
   }
 
   return QStringLiteral("Unknown");
+}
+
+QString MainWindow::projectRootPath() const {
+  const QString applicationDir = QCoreApplication::applicationDirPath();
+  const QStringList candidates = {
+      QDir::currentPath(),
+      applicationDir,
+      QDir(applicationDir).absoluteFilePath(QStringLiteral("..")),
+      QDir(applicationDir).absoluteFilePath(QStringLiteral("../..")),
+      QDir(applicationDir).absoluteFilePath(QStringLiteral("../../..")),
+  };
+
+  for (const QString &candidate : candidates) {
+    const QFileInfo defaultProgramFile(QDir(candidate).filePath(QStringLiteral("config/default_program.json")));
+    if (defaultProgramFile.exists()) {
+      return QDir(candidate).absolutePath();
+    }
+  }
+
+  return QDir::currentPath();
+}
+
+QString MainWindow::projectFilePath(const QString &relativePath) const {
+  return QDir(projectRootPath()).filePath(relativePath);
 }
 
 QDoubleSpinBox *MainWindow::targetSpinBox(const MotionAxis axis) const {

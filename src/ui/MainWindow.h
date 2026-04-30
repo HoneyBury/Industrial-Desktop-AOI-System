@@ -25,16 +25,23 @@ public:
 
 private:
   void bindMotionControls();
+  void bindProgramControls();
   void refreshStatus();
   void refreshMotionPanel();
+  void refreshProgramSummary();
   void appendLog(const QString &message);
   void moveAxisAbsolute(MotionAxis axis);
   void moveAxisRelative(MotionAxis axis, double direction);
   void homeAxis(MotionAxis axis);
   void emergencyStopMotion();
   void resetEmergencyStopMotion();
+  void createDefaultProgram();
+  void loadDefaultProgram();
+  void saveCurrentProgram();
 
   [[nodiscard]] QString axisName(MotionAxis axis) const;
+  [[nodiscard]] QString projectRootPath() const;
+  [[nodiscard]] QString projectFilePath(const QString &relativePath) const;
   [[nodiscard]] QDoubleSpinBox *targetSpinBox(MotionAxis axis) const;
   [[nodiscard]] QDoubleSpinBox *stepSpinBox(MotionAxis axis) const;
   [[nodiscard]] QLabel *positionLabel(MotionAxis axis) const;

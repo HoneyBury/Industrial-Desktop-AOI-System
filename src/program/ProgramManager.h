@@ -8,6 +8,7 @@
 
 class ProgramManager {
 public:
+  Result<void> createDefaultProgram();
   Result<void> createProgram(const ProgramModel &program);
   Result<void> saveProgram(const std::string &filePath) const;
   Result<ProgramModel> loadProgram(const std::string &filePath);
@@ -16,4 +17,3 @@ public:
 private:
   std::optional<ProgramModel> currentProgram_;
 };
-

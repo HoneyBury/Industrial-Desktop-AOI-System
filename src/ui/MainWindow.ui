@@ -161,6 +161,112 @@
      </layout>
     </item>
     <item>
+     <widget class="QGroupBox" name="programSummaryGroupBox">
+      <property name="title">
+       <string>程序管理</string>
+      </property>
+      <layout class="QGridLayout" name="programSummaryGridLayout">
+       <item row="0" column="0">
+        <widget class="QLabel" name="programNameTitleLabel">
+         <property name="text">
+          <string>程序名称</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QLabel" name="programNameValueLabel">
+         <property name="styleSheet">
+          <string notr="true">font-weight: 700; color: #175cd3;</string>
+         </property>
+         <property name="text">
+          <string>未加载</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="2">
+        <widget class="QLabel" name="programAiModelTitleLabel">
+         <property name="text">
+          <string>AI 模型</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="3">
+        <widget class="QLabel" name="programAiModelValueLabel">
+         <property name="text">
+          <string>--</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="programFileTitleLabel">
+         <property name="text">
+          <string>关联文件</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1" colspan="3">
+        <widget class="QLabel" name="programFileValueLabel">
+         <property name="text">
+          <string>未关联文件</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="programMarksTitleLabel">
+         <property name="text">
+          <string>Mark 数量</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QLabel" name="programMarksValueLabel">
+         <property name="text">
+          <string>0</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="2">
+        <widget class="QLabel" name="programRoisTitleLabel">
+         <property name="text">
+          <string>ROI 数量</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="3">
+        <widget class="QLabel" name="programRoisValueLabel">
+         <property name="text">
+          <string>0</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="0">
+        <widget class="QPushButton" name="newProgramButton">
+         <property name="text">
+          <string>新建默认程序</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QPushButton" name="loadProgramButton">
+         <property name="text">
+          <string>加载默认程序文件</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="2">
+        <widget class="QPushButton" name="saveProgramButton">
+         <property name="text">
+          <string>保存当前程序</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
      <layout class="QGridLayout" name="axisGridLayout">
       <property name="horizontalSpacing">
        <number>12</number>
