@@ -18,8 +18,8 @@ BoardScanExecutionResult BoardScanExecutor::execute(const PlannedBoardScan &plan
   tiles.reserve(plan.poses.size());
 
   for (const auto &pose : plan.poses) {
-    if (!motionController.moveAbsolute(MotionAxis::X, pose.machinePose.x) ||
-        !motionController.moveAbsolute(MotionAxis::Y, pose.machinePose.y) ||
+    if (!motionController.moveAbsolute(MotionAxis::CameraX, pose.machinePose.x) ||
+        !motionController.moveAbsolute(MotionAxis::CameraY, pose.machinePose.y) ||
         !motionController.moveAbsolute(MotionAxis::Z, pose.machinePose.z) ||
         !motionController.moveAbsolute(MotionAxis::R, pose.machinePose.r)) {
       std::ostringstream stream;

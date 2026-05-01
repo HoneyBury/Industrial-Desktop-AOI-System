@@ -63,13 +63,18 @@ TEST(BoardScanExecutorTest, MovesAxesAndCapturesAllTiles) {
         return "tile_" + std::to_string(pose.row) + "_" + std::to_string(pose.column) + ".png";
       });
 
+  // tick the controller so axes reach their targets
+  for (int i = 0; i < 200; ++i) {
+    controller.tick(0.05);
+  }
+
   ASSERT_TRUE(executeResult);
   EXPECT_EQ(captureCount, 4);
   ASSERT_EQ(executeResult.value.size(), static_cast<std::size_t>(4));
-  ASSERT_TRUE(controller.position(MotionAxis::X).has_value());
-  ASSERT_TRUE(controller.position(MotionAxis::Y).has_value());
-  EXPECT_NEAR(*controller.position(MotionAxis::X), 160.0, 1e-9);
-  EXPECT_NEAR(*controller.position(MotionAxis::Y), 237.5, 1e-9);
+  ASSERT_TRUE(controller.position(MotionAxis::CameraX).has_value());
+  ASSERT_TRUE(controller.position(MotionAxis::CameraY).has_value());
+  EXPECT_NEAR(*controller.position(MotionAxis::CameraX), 160.0, 1e-9);
+  EXPECT_NEAR(*controller.position(MotionAxis::CameraY), 237.5, 1e-9);
   EXPECT_NEAR(*controller.position(MotionAxis::Z), 3.0, 1e-9);
   EXPECT_NEAR(*controller.position(MotionAxis::R), 5.0, 1e-9);
 }

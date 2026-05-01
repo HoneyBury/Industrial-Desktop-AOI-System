@@ -19,8 +19,8 @@ TEST(ProcessEngineTest, RunsBoardWorkflowQueueInIndustrialOrder) {
   program->laserOffsetCalibration.cameraToLaserDyMm = -0.25;
 
   VirtualMotionController motionController;
-  motionController.moveAbsolute(MotionAxis::X, 100.0);
-  motionController.moveAbsolute(MotionAxis::Y, 200.0);
+  motionController.moveAbsolute(MotionAxis::CameraX, 100.0);
+  motionController.moveAbsolute(MotionAxis::CameraY, 200.0);
   WorkflowContext context;
   context.boardId = "BOARD-001";
   context.program = &(*program);
@@ -49,9 +49,15 @@ TEST(ProcessEngineTest, RunsBoardWorkflowQueueInIndustrialOrder) {
   EXPECT_TRUE(context.finalDecisionOk);
   EXPECT_TRUE(context.inspectionDetailsJson.find("\"laserPointResults\"") != std::string::npos);
   EXPECT_TRUE(context.inspectionDetailsJson.find("\"taskName\":\"Laser-Inspect-Top\"") != std::string::npos);
-  ASSERT_TRUE(motionController.position(MotionAxis::X).has_value());
-  EXPECT_NEAR(*motionController.position(MotionAxis::X), context.currentMachinePose.x, 1e-9);
-  EXPECT_NEAR(*motionController.position(MotionAxis::Y), context.currentMachinePose.y, 1e-9);
+
+  // tick controller so axes reach targets set by workflow steps
+  for (int i = 0; i < 200; ++i) {
+    motionController.tick(0.05);
+  }
+
+  ASSERT_TRUE(motionController.position(MotionAxis::CameraX).has_value());
+  EXPECT_NEAR(*motionController.position(MotionAxis::CameraX), context.currentMachinePose.x, 1e-9);
+  EXPECT_NEAR(*motionController.position(MotionAxis::CameraY), context.currentMachinePose.y, 1e-9);
 }
 
 TEST(ProcessEngineTest, AdvancesWorkflowOneStepAtATime) {

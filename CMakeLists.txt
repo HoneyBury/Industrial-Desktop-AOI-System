@@ -73,6 +73,8 @@ add_library(aoi_core
   src/boardscan/BoardScanExecutor.cpp
   src/boardscan/BoardStitcher.cpp
   src/camera/UsbCamera.cpp
+  src/camera/MacCameraProvider.cpp
+  src/camera/DemoImageCameraProvider.cpp
   src/calibration/CameraIntrinsicCalibrator.cpp
   src/calibration/LaserOffsetCalibrator.cpp
   src/calibration/MarkReferenceCalibrator.cpp
@@ -99,6 +101,7 @@ add_library(aoi_core
   src/laser/VirtualLaserController.cpp
   src/motion/VirtualMotionController.cpp
   src/transport/VirtualTransportController.cpp
+  src/statemachine/MachineStateMachine.cpp
   src/program/ProgramManager.cpp
   src/database/DatabaseManager.cpp
   src/export/CsvExporter.cpp
@@ -166,7 +169,13 @@ if(AOI_HAS_QT)
     src/ui/DataCollectDialog.cpp
     src/ui/DataCollectDialog.h
     src/ui/ProductionHistoryDialog.cpp
-    src/ui/ProductionHistoryDialog.h)
+    src/ui/ProductionHistoryDialog.h
+    src/animation/AnimationItems.cpp
+    src/animation/AnimationItems.h
+    src/animation/DeviceAnimationScene.cpp
+    src/animation/DeviceAnimationScene.h
+    src/animation/AnimationWidget.cpp
+    src/animation/AnimationWidget.h)
 endif()
 
 if(AOI_HAS_QT)

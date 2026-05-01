@@ -19,4 +19,5 @@ public:
   virtual void resetBoardReadySignal() = 0;
   virtual BoardTransportState state() const = 0;
   virtual std::string lastSignalMessage() const = 0;
+  virtual void tick(double /*deltaSec*/) {} // 默认空实现，虚拟子类可覆写
 };

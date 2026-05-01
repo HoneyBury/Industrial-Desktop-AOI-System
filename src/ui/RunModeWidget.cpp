@@ -210,6 +210,7 @@ void RunModeWidget::buildUi() {
 }
 
 void RunModeWidget::buildLockedPreview(QBoxLayout *parentLayout) {
+  // 相机预览区
   auto *previewGroup = new QGroupBox(QString::fromUtf8("实时预览（锁定）"), this);
   auto *previewLayout = new QVBoxLayout(previewGroup);
   previewLayout->setContentsMargins(4, 8, 4, 4);

@@ -45,8 +45,8 @@ StepExecutionResult LaserExecuteStep::execute(WorkflowContext &context) const {
   }
 
   for (auto &pointResult : context.laserPointResults) {
-    if (!context.motionController->moveAbsolute(MotionAxis::X, pointResult.machinePose.x) ||
-        !context.motionController->moveAbsolute(MotionAxis::Y, pointResult.machinePose.y) ||
+    if (!context.motionController->moveAbsolute(MotionAxis::CameraX, pointResult.machinePose.x) ||
+        !context.motionController->moveAbsolute(MotionAxis::CameraY, pointResult.machinePose.y) ||
         !context.motionController->moveAbsolute(MotionAxis::Z, pointResult.machinePose.z) ||
         !context.motionController->moveAbsolute(MotionAxis::R, pointResult.machinePose.r)) {
       pointResult.summary = "Failed to move to compensated laser pose.";

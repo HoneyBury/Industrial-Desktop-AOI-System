@@ -1753,8 +1753,11 @@ void MainWindow::openCameraConfig() {
 }
 
 void MainWindow::openMotionPanel() {
+  // 确保运输控制器已绑定运动控制器引用
+  virtualTransportController_.setMotionController(&virtualMotionController_);
+
   if (motionControlDialog_ == nullptr) {
-    motionControlDialog_ = new MotionControlDialog(&virtualMotionController_, this);
+    motionControlDialog_ = new MotionControlDialog(&virtualMotionController_, &virtualTransportController_, this);
     connect(motionControlDialog_, &MotionControlDialog::motionStateChanged, this, [this] {
       refreshProgramWidgets();
     });
@@ -2769,16 +2772,16 @@ QImage MainWindow::currentCalibrationFrame() const {
 
 MechanicalPose MainWindow::currentMechanicalPose() const {
   return MechanicalPose {
-      virtualMotionController_.position(MotionAxis::X).value_or(0.0),
-      virtualMotionController_.position(MotionAxis::Y).value_or(0.0),
+      virtualMotionController_.position(MotionAxis::CameraX).value_or(0.0),
+      virtualMotionController_.position(MotionAxis::CameraY).value_or(0.0),
       virtualMotionController_.position(MotionAxis::Z).value_or(0.0),
       virtualMotionController_.position(MotionAxis::R).value_or(0.0),
   };
 }
 
 void MainWindow::applyMechanicalPose(const MechanicalPose &pose, const QString &reason) {
-  virtualMotionController_.moveAbsolute(MotionAxis::X, pose.x);
-  virtualMotionController_.moveAbsolute(MotionAxis::Y, pose.y);
+  virtualMotionController_.moveAbsolute(MotionAxis::CameraX, pose.x);
+  virtualMotionController_.moveAbsolute(MotionAxis::CameraY, pose.y);
   virtualMotionController_.moveAbsolute(MotionAxis::Z, pose.z);
   virtualMotionController_.moveAbsolute(MotionAxis::R, pose.r);
   refreshProgramWidgets();

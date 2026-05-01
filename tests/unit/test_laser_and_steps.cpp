@@ -65,9 +65,21 @@ TEST(VirtualLaserControllerTest, ResetRecoversFromStop) {
 // VirtualTransportController
 // ---------------------------------------------------------------------------
 
+namespace {
+// tick the transport until it settles (board reaches stopper at 450mm, speed 200mm/s)
+void tickUntilReady(VirtualTransportController &transport, double maxSec = 5.0) {
+  const double dt = 0.05;
+  for (double elapsed = 0.0; elapsed < maxSec; elapsed += dt) {
+    transport.tick(dt);
+    if (transport.isBoardReady() || transport.state() == BoardTransportState::Idle) break;
+  }
+}
+} // namespace
+
 TEST(VirtualTransportControllerTest, LoadBoardSetsReadySignal) {
   VirtualTransportController transport;
   EXPECT_TRUE(transport.loadBoard());
+  tickUntilReady(transport);
   EXPECT_TRUE(transport.isBoardReady());
   EXPECT_EQ(transport.state(), BoardTransportState::BoardReady);
   EXPECT_TRUE(!transport.lastSignalMessage().empty());
@@ -76,7 +88,10 @@ TEST(VirtualTransportControllerTest, LoadBoardSetsReadySignal) {
 TEST(VirtualTransportControllerTest, UnloadBoardClearsReadySignal) {
   VirtualTransportController transport;
   ASSERT_TRUE(transport.loadBoard());
+  tickUntilReady(transport);
+  ASSERT_TRUE(transport.isBoardReady());
   EXPECT_TRUE(transport.unloadBoard());
+  tickUntilReady(transport);
   EXPECT_TRUE(!transport.isBoardReady());
   EXPECT_EQ(transport.state(), BoardTransportState::Idle);
 }
@@ -138,8 +153,15 @@ TEST(ProcessStepTest, LoadBoardFailsWhenTransportHasNoReadyBoard) {
 
 TEST(ProcessStepTest, RoughPositionReadsMotionPose) {
   VirtualMotionController motion;
-  motion.moveAbsolute(MotionAxis::X, 42.0);
-  motion.moveAbsolute(MotionAxis::Y, 88.0);
+  motion.moveAbs(MotionAxis::CameraX, 42.0);
+  motion.moveAbs(MotionAxis::CameraY, 88.0);
+
+  // tick until axes reach their targets
+  for (int i = 0; i < 100; ++i) {
+    motion.tick(0.05);
+    if (motion.getAxisState(MotionAxis::CameraX) == AxisState::Done &&
+        motion.getAxisState(MotionAxis::CameraY) == AxisState::Done) break;
+  }
 
   WorkflowContext context;
   context.motionController = &motion;

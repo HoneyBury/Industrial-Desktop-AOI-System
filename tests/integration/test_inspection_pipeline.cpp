@@ -85,8 +85,8 @@ TEST(InspectionPipelineTest, PersistsWorkflowBoardTraceAndInspectionResult) {
   ASSERT_TRUE(databaseManager.open(dbPath));
 
   VirtualMotionController motionController;
-  motionController.moveAbsolute(MotionAxis::X, 100.0);
-  motionController.moveAbsolute(MotionAxis::Y, 200.0);
+  motionController.moveAbsolute(MotionAxis::CameraX, 100.0);
+  motionController.moveAbsolute(MotionAxis::CameraY, 200.0);
 
   WorkflowContext context;
   context.program = &(*program);
