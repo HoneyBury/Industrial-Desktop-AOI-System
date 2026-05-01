@@ -2,6 +2,7 @@
 
 #include "camera/UsbCamera.h"
 #include "config/AppSettings.h"
+#include "laser/VirtualLaserController.h"
 #include "motion/VirtualMotionController.h"
 #include "process/ProcessEngine.h"
 #include "program/ProgramManager.h"
@@ -138,6 +139,7 @@ private:
   Ui::MainWindow *ui_ {nullptr};
   UsbCamera usbCamera_;
   VirtualMotionController virtualMotionController_;
+  VirtualLaserController virtualLaserController_;
   ProgramManager programManager_;
   ProcessEngine processEngine_;
   AppSettings appSettings_;

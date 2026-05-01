@@ -1,15 +1,21 @@
 #include "process/ProcessEngine.h"
 
 #include "process/DefectInspectStep.h"
+#include "process/ImageCaptureStep.h"
 #include "process/LaserExecuteStep.h"
+#include "process/LoadBoardStep.h"
 #include "process/MarkAlignStep.h"
 #include "process/PostLaserVerifyStep.h"
 #include "process/PreLaserStep.h"
+#include "process/RoughPositionStep.h"
 
 #include <memory>
 #include <sstream>
 
 ProcessEngine::ProcessEngine() {
+  workflow_.addStep(std::make_unique<LoadBoardStep>());
+  workflow_.addStep(std::make_unique<RoughPositionStep>());
+  workflow_.addStep(std::make_unique<ImageCaptureStep>());
   workflow_.addStep(std::make_unique<MarkAlignStep>());
   workflow_.addStep(std::make_unique<DefectInspectStep>());
   workflow_.addStep(std::make_unique<PreLaserStep>());

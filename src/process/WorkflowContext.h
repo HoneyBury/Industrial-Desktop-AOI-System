@@ -2,6 +2,7 @@
 
 #include "ai/AiInferencer.h"
 #include "alignment/MarkAlignmentSolver.h"
+#include "laser/ILaserController.h"
 #include "motion/IMotionController.h"
 #include "process/ProcessTypes.h"
 #include "program/ProgramModel.h"
@@ -14,7 +15,9 @@ struct WorkflowContext {
   std::string boardId;
   ProgramModel *program {nullptr};
   IMotionController *motionController {nullptr};
+  ILaserController *laserController {nullptr};
   std::string currentImagePath;
+  std::string captureDir; // temp directory for captured frames
   MechanicalPose currentMachinePose;
   std::vector<MarkPoint> measuredMarks;
   alignment::MarkAlignmentResult lastMarkAlignment;
@@ -43,4 +46,8 @@ struct WorkflowContext {
   // Log callback: (message)
   using LogCallback = std::function<void(const std::string &)>;
   LogCallback onLog;
+
+  // Frame capture callback: saves current frame to disk, returns path
+  using CaptureFrameCallback = std::function<std::string()>;
+  CaptureFrameCallback captureFrame;
 };

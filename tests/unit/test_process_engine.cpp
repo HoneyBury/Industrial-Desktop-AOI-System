@@ -19,6 +19,8 @@ TEST(ProcessEngineTest, RunsBoardWorkflowQueueInIndustrialOrder) {
   program->laserOffsetCalibration.cameraToLaserDyMm = -0.25;
 
   VirtualMotionController motionController;
+  motionController.moveAbsolute(MotionAxis::X, 100.0);
+  motionController.moveAbsolute(MotionAxis::Y, 200.0);
   WorkflowContext context;
   context.boardId = "BOARD-001";
   context.program = &(*program);
@@ -33,12 +35,12 @@ TEST(ProcessEngineTest, RunsBoardWorkflowQueueInIndustrialOrder) {
   };
 
   ProcessEngine engine;
-  ASSERT_EQ(engine.stepCount(), static_cast<std::size_t>(5));
+  ASSERT_EQ(engine.stepCount(), static_cast<std::size_t>(8));
 
   const auto result = engine.runBoard(context);
   ASSERT_TRUE(result.ok);
-  ASSERT_EQ(result.records.size(), static_cast<std::size_t>(5));
-  EXPECT_EQ(result.records.front().stepId, std::string("mark_align"));
+  ASSERT_EQ(result.records.size(), static_cast<std::size_t>(8));
+  EXPECT_EQ(result.records.front().stepId, std::string("load_board"));
   EXPECT_EQ(result.records.back().stepId, std::string("post_laser_verify"));
   EXPECT_TRUE(context.hasMarkAlignment);
   EXPECT_TRUE(context.hasPreparedLaserPose);

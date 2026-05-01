@@ -2167,6 +2167,7 @@ void MainWindow::switchToRunMode() {
     workflowContext_.program = programManager_.mutableProgram();
   }
   workflowContext_.motionController = &virtualMotionController_;
+  workflowContext_.laserController = &virtualLaserController_;
   workflowContext_.totalBoards = 10;
   workflowContext_.boardIndex = runModeWidget_->currentBoardIndex();
 
@@ -2213,6 +2214,24 @@ void MainWindow::switchToRunMode() {
     runModeWidget_->recordBoardResult(ok);
   };
 
+  workflowContext_.captureFrame = [this]() -> std::string {
+    if (lastCameraFrameImage_.isNull()) {
+      return {};
+    }
+
+    const QString tempDir = appSettings_.templateFolderPath.empty()
+                                ? projectFilePath(QStringLiteral("data/template_cache"))
+                                : QString::fromStdString(appSettings_.templateFolderPath);
+    QDir().mkpath(tempDir);
+    const QString path =
+        QDir(tempDir).filePath(QStringLiteral("capture_%1.png").arg(QDateTime::currentMSecsSinceEpoch()));
+    if (lastCameraFrameImage_.save(path)) {
+      return path.toStdString();
+    }
+
+    return {};
+  };
+
   if (mainStackedWidget_ != nullptr) {
     mainStackedWidget_->setCurrentIndex(1);
   }
@@ -2230,27 +2249,94 @@ void MainWindow::switchToRunMode() {
   refreshStatusSummary();
 }
 
+namespace {
+
+QString stepTypeDisplayName(const ProcessStepType type) {
+  switch (type) {
+  case ProcessStepType::LoadBoard:      return QStringLiteral("进板");
+  case ProcessStepType::RoughPosition:  return QStringLiteral("粗定位");
+  case ProcessStepType::MarkAlign:      return QStringLiteral("Mark 定位");
+  case ProcessStepType::DefectInspect:  return QStringLiteral("缺陷检测");
+  case ProcessStepType::PreLaser:       return QStringLiteral("激光前检查");
+  case ProcessStepType::LaserExecute:   return QStringLiteral("激光执行");
+  case ProcessStepType::PostLaserVerify: return QStringLiteral("激光后验证");
+  case ProcessStepType::OutputResult:   return QStringLiteral("输出结果");
+  }
+  return QStringLiteral("未知步骤");
+}
+
+} // namespace
+
 void MainWindow::startWorkflowRun() {
   if (workflowRunning_) {
     return;
   }
 
-  // Re-init context for a fresh run
-  workflowContext_.boardId = "BOARD-001";
+  workflowContext_ = WorkflowContext {};
   workflowContext_.program = programManager_.mutableProgram();
   workflowContext_.motionController = &virtualMotionController_;
+  workflowContext_.laserController = &virtualLaserController_;
   workflowContext_.totalBoards = 10;
   workflowContext_.boardIndex = 0;
   workflowContext_.okCount = 0;
   workflowContext_.ngCount = 0;
+  workflowContext_.currentMachinePose = currentMechanicalPose();
+
+  // Wire frame capture callback.
+  workflowContext_.captureFrame = [this]() -> std::string {
+    if (lastCameraFrameImage_.isNull()) {
+      return {};
+    }
+
+    const QString tempDir = appSettings_.templateFolderPath.empty()
+                                ? projectFilePath(QStringLiteral("data/template_cache"))
+                                : QString::fromStdString(appSettings_.templateFolderPath);
+    QDir().mkpath(tempDir);
+    const QString path =
+        QDir(tempDir).filePath(QStringLiteral("capture_%1.png").arg(QDateTime::currentMSecsSinceEpoch()));
+    if (lastCameraFrameImage_.save(path)) {
+      return path.toStdString();
+    }
+
+    return {};
+  };
+
+  // Wire step progress callback for UI updates.
+  workflowContext_.onStepProgress = [this](const int stepIdx, const int totalSteps,
+                                           const std::string &stepName, const StepExecutionStatus) {
+    workflowStepIndex_ = stepIdx;
+    workflowTotalSteps_ = totalSteps;
+  };
+
+  // Wire log callback.
+  workflowContext_.onLog = [this](const std::string &message) {
+    const QString msg = QString::fromStdString(message);
+    if (runModeWidget_ != nullptr) {
+      runModeWidget_->appendProductionLog(msg);
+    }
+
+    appendLog(msg);
+  };
+
+  // Wire board result callback.
+  workflowContext_.onBoardResult = [this](const int, const bool ok, const std::string &) {
+    if (runModeWidget_ != nullptr) {
+      runModeWidget_->recordBoardResult(ok);
+    }
+  };
 
   workflowStepIndex_ = 0;
   workflowTotalSteps_ = static_cast<int>(processEngine_.stepCount());
   workflowRunning_ = true;
   workflowTimer_->start();
 
-  runModeWidget_->appendProductionLog(
-      QStringLiteral("工作流已启动，共 %1 块板待处理。").arg(workflowContext_.totalBoards));
+  if (runModeWidget_ != nullptr) {
+    runModeWidget_->appendProductionLog(
+        QStringLiteral("工作流已启动，共 %1 块板待处理，%2 个步骤/板。")
+            .arg(workflowContext_.totalBoards)
+            .arg(workflowTotalSteps_));
+  }
+
   appendLog(QStringLiteral("工作流已启动。"));
 }
 
@@ -2282,77 +2368,58 @@ void MainWindow::advanceWorkflowStep() {
     return;
   }
 
-  const int totalSteps = workflowTotalSteps_ > 0 ? workflowTotalSteps_
-                                                  : static_cast<int>(processEngine_.stepCount());
+  // Each timer tick processes one complete board through the real workflow engine.
+  const WorkflowRunResult result = processEngine_.runBoard(workflowContext_);
 
-  if (workflowStepIndex_ >= totalSteps) {
-    // Board completed
-    const auto result = processEngine_.runBoard(workflowContext_);
-    workflowContext_.finalDecisionOk = result.ok;
+  if (runModeWidget_ != nullptr) {
+    const int totalSteps = workflowTotalSteps_ > 0 ? workflowTotalSteps_
+                                                    : static_cast<int>(processEngine_.stepCount());
+    runModeWidget_->updateStepProgress(
+        QStringLiteral("板 #%1 完成").arg(workflowContext_.boardIndex + 1),
+        totalSteps, totalSteps);
 
-    if (result.ok) {
-      ++workflowContext_.okCount;
-    } else {
-      ++workflowContext_.ngCount;
-    }
-
-    if (runModeWidget_ != nullptr) {
-      runModeWidget_->recordBoardResult(result.ok);
-    }
-
-    ++workflowContext_.boardIndex;
-
-    if (workflowContext_.boardIndex >= workflowContext_.totalBoards) {
-      workflowTimer_->stop();
-      workflowRunning_ = false;
-
-      if (runModeWidget_ != nullptr) {
-        runModeWidget_->appendProductionLog(
-            QStringLiteral("全部 %1 块板处理完成。OK=%2, NG=%3")
-                .arg(workflowContext_.totalBoards)
-                .arg(workflowContext_.okCount)
-                .arg(workflowContext_.ngCount));
-        runModeWidget_->updateStepProgress(QStringLiteral("全部完成"), totalSteps, totalSteps);
-      }
-
-      appendLog(QStringLiteral("工作流全部完成。"));
-      return;
-    }
-
-    workflowStepIndex_ = 0;
-
-    if (runModeWidget_ != nullptr) {
+    for (const auto &record : result.records) {
+      const QString statusIcon = record.status == StepExecutionStatus::Succeeded   ? QStringLiteral("OK")
+                                 : record.status == StepExecutionStatus::Failed     ? QStringLiteral("FAIL")
+                                 : record.status == StepExecutionStatus::Skipped   ? QStringLiteral("SKIP")
+                                                                                   : QStringLiteral("...");
       runModeWidget_->appendProductionLog(
-          QStringLiteral("开始处理板 #%1 / %2")
-              .arg(workflowContext_.boardIndex + 1)
-              .arg(workflowContext_.totalBoards));
+          QStringLiteral("  %1 [%2] %3")
+              .arg(stepTypeDisplayName(record.stepType))
+              .arg(statusIcon)
+              .arg(QString::fromStdString(record.message)));
     }
   }
 
-  ++workflowStepIndex_;
+  ++workflowContext_.boardIndex;
 
-  const QStringList stepNames = {
-      QStringLiteral("Mark 定位"),
-      QStringLiteral("缺陷检测"),
-      QStringLiteral("激光前检查"),
-      QStringLiteral("激光执行"),
-      QStringLiteral("激光后验证"),
-  };
+  if (workflowContext_.boardIndex >= workflowContext_.totalBoards) {
+    workflowTimer_->stop();
+    workflowRunning_ = false;
 
-  const int stepNameIdx = (workflowStepIndex_ - 1) % stepNames.size();
-  const QString stepName = stepNameIdx < stepNames.size() ? stepNames[stepNameIdx] : QStringLiteral("未知步骤");
+    if (runModeWidget_ != nullptr) {
+      const int totalSteps = workflowTotalSteps_ > 0 ? workflowTotalSteps_
+                                                      : static_cast<int>(processEngine_.stepCount());
+      runModeWidget_->appendProductionLog(
+          QString::fromUtf8("═══════════════════════════════════\n"
+                            "全部 %1 块板处理完成。OK=%2, NG=%3\n"
+                            "═══════════════════════════════════")
+              .arg(workflowContext_.totalBoards)
+              .arg(workflowContext_.okCount)
+              .arg(workflowContext_.ngCount));
+      runModeWidget_->updateStepProgress(QString::fromUtf8("全部完成"), totalSteps, totalSteps);
+    }
+
+    appendLog(QString::fromUtf8("工作流全部完成。"));
+    return;
+  }
 
   if (runModeWidget_ != nullptr) {
-    runModeWidget_->updateStepProgress(
-        QStringLiteral("板 #%1 | %2").arg(workflowContext_.boardIndex + 1).arg(stepName),
-        workflowStepIndex_, totalSteps);
-
     runModeWidget_->appendProductionLog(
-        QStringLiteral("板 #%1 步骤 %2/%3: %4")
+        QString::fromUtf8("─────────────────────────────────\n"
+                          "开始处理板 #%1 / %2")
             .arg(workflowContext_.boardIndex + 1)
-            .arg(workflowStepIndex_)
-            .arg(totalSteps)
-            .arg(stepName));
+            .arg(workflowContext_.totalBoards));
   }
 }
 

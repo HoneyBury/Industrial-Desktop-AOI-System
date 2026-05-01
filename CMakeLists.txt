@@ -80,7 +80,10 @@ add_library(aoi_core
   src/process/IProcessStep.cpp
   src/process/BoardWorkflow.cpp
   src/process/ProcessEngine.cpp
+  src/process/ImageCaptureStep.cpp
+  src/process/LoadBoardStep.cpp
   src/process/MarkAlignStep.cpp
+  src/process/RoughPositionStep.cpp
   src/process/DefectInspectStep.cpp
   src/process/PreLaserStep.cpp
   src/process/LaserExecuteStep.cpp
@@ -89,6 +92,7 @@ add_library(aoi_core
   src/vision/MarkDetector.cpp
   src/vision/RoiDetector.cpp
   src/vision/CodeReader.cpp
+  src/laser/VirtualLaserController.cpp
   src/motion/VirtualMotionController.cpp
   src/program/ProgramManager.cpp
   src/database/DatabaseManager.cpp

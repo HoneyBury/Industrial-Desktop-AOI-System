@@ -86,6 +86,12 @@ struct ProgramModel {
   std::vector<RoiDetectorConfig> roiDetectorConfigs;
   ProgramRuntimeSummary runtimeSummary;
 
+  // Laser marking operational parameters.
+  double laserPowerPercent {80.0};
+  double laserFrequencyKhz {20.0};
+  double laserPulseWidthUs {10.0};
+  int laserRepeatCount {1};
+
   // Transitional compatibility fields.
   std::string templateCachePath;
   std::string latestTemplateMatchSummary;

@@ -561,7 +561,11 @@ Result<void> ProgramManager::saveProgram(const std::string &filePath) const {
          << "    \"cameraToLaserDxMm\": " << serializableProgram.laserOffsetCalibration.cameraToLaserDxMm
          << ",\n"
          << "    \"cameraToLaserDyMm\": " << serializableProgram.laserOffsetCalibration.cameraToLaserDyMm
-         << "\n  },\n";
+         << "\n  },\n"
+         << "  \"laserPowerPercent\": " << serializableProgram.laserPowerPercent << ",\n"
+         << "  \"laserFrequencyKhz\": " << serializableProgram.laserFrequencyKhz << ",\n"
+         << "  \"laserPulseWidthUs\": " << serializableProgram.laserPulseWidthUs << ",\n"
+         << "  \"laserRepeatCount\": " << serializableProgram.laserRepeatCount << ",\n";
 
   writeMarkReferences(output, serializableProgram.markReferences);
   writeRoiDetectorConfigs(output, serializableProgram.roiDetectorConfigs);
@@ -674,6 +678,19 @@ Result<ProgramModel> ProgramManager::loadProgram(const std::string &filePath) {
   if (const auto value = extractDoubleField(content, "cameraToLaserDyMm"); value.has_value()) {
     model.laserOffsetCalibration.calibrated = true;
     model.laserOffsetCalibration.cameraToLaserDyMm = *value;
+  }
+
+  if (const auto value = extractDoubleField(content, "laserPowerPercent"); value.has_value()) {
+    model.laserPowerPercent = *value;
+  }
+  if (const auto value = extractDoubleField(content, "laserFrequencyKhz"); value.has_value()) {
+    model.laserFrequencyKhz = *value;
+  }
+  if (const auto value = extractDoubleField(content, "laserPulseWidthUs"); value.has_value()) {
+    model.laserPulseWidthUs = *value;
+  }
+  if (const auto value = extractDoubleField(content, "laserRepeatCount"); value.has_value()) {
+    model.laserRepeatCount = static_cast<int>(*value);
   }
 
   model.markReferences = parseMarkReferences(content);
