@@ -2,7 +2,72 @@
   "name": "default_demo_program",
   "aiModelPath": "models/demo.onnx",
   "calibrationFilePath": "config/camera_calib.yaml",
-  "codeRegionName": "qr_region_01",
+  "codeRegionName": "Code-Area",
+  "cameraIntrinsicCalibration": {
+    "calibrated": true,
+    "fx": 1000.0,
+    "fy": 1000.0,
+    "cx": 640.0,
+    "cy": 360.0,
+    "distortionCoefficients": [0.0, 0.0, 0.0, 0.0]
+  },
+  "pixelScaleCalibration": {
+    "calibrated": true,
+    "pixelToMillimeterX": 0.01,
+    "pixelToMillimeterY": 0.01
+  },
+  "originCalibration": {
+    "calibrated": false,
+    "imageReferenceX": 0.0,
+    "imageReferenceY": 0.0,
+    "machineReferenceX": 0.0,
+    "machineReferenceY": 0.0,
+    "machineReferenceZ": 0.0,
+    "machineReferenceR": 0.0
+  },
+  "laserOffsetCalibration": {
+    "calibrated": false,
+    "cameraToLaserDxMm": 0.0,
+    "cameraToLaserDyMm": 0.0
+  },
+  "markReferences": [
+    {
+      "name": "Mark-Left",
+      "referencePixelX": 100.0,
+      "referencePixelY": 80.0,
+      "referenceProductX": 1.0,
+      "referenceProductY": 0.8,
+      "enabled": true
+    },
+    {
+      "name": "Mark-Right",
+      "referencePixelX": 240.0,
+      "referencePixelY": 82.0,
+      "referenceProductX": 2.4,
+      "referenceProductY": 0.82,
+      "enabled": true
+    }
+  ],
+  "roiDetectorConfigs": [
+    {
+      "roiName": "Inspect-Top",
+      "detectorType": "geometry",
+      "threshold": 0.78,
+      "templateImagePath": "",
+      "aiModelPath": "",
+      "parameterSummary": "Geometry threshold inspect",
+      "enabled": true
+    },
+    {
+      "roiName": "Code-Area",
+      "detectorType": "code",
+      "threshold": 0.83,
+      "templateImagePath": "",
+      "aiModelPath": "",
+      "parameterSummary": "QR/DM read region",
+      "enabled": true
+    }
+  ],
   "marks": [
     {
       "name": "Mark-Left",
@@ -28,7 +93,7 @@
       "height": 44.0,
       "rotation": 0.0,
       "score": 0.89,
-      "minimumScore": 0.80,
+      "minimumScore": 0.8,
       "previewScore": 0.86,
       "colorTolerance": 12,
       "sampledColor": "#ffffff",
@@ -60,5 +125,18 @@
       "shape": "circle",
       "enabled": true
     }
-  ]
+  ],
+  "runtimeSummary": {
+    "templateCachePath": "",
+    "latestTemplateMatchSummary": "",
+    "hasMarkCalibration": false,
+    "markCalibrationOffsetXmm": 0.0,
+    "markCalibrationOffsetYmm": 0.0,
+    "markCalibrationRotationDegrees": 0.0,
+    "hasOriginCalibration": false,
+    "originCorrectedX": 0.0,
+    "originCorrectedY": 0.0,
+    "originCorrectedZ": 0.0,
+    "originCorrectedR": 0.0
+  }
 }

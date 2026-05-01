@@ -13,6 +13,7 @@ public:
   Result<void> saveProgram(const std::string &filePath) const;
   Result<ProgramModel> loadProgram(const std::string &filePath);
   std::optional<ProgramModel> currentProgram() const;
+  ProgramModel *mutableProgram();
 
 private:
   std::optional<ProgramModel> currentProgram_;

@@ -3,7 +3,9 @@
 #include "camera/UsbCamera.h"
 #include "config/AppSettings.h"
 #include "motion/VirtualMotionController.h"
+#include "process/ProcessEngine.h"
 #include "program/ProgramManager.h"
+#include "vision/CoordinateTransformer.h"
 
 #ifdef AOI_HAS_QT_WIDGETS
 
@@ -18,6 +20,7 @@ class CadGraphicsView;
 class CadRulerWidget;
 class LogWindow;
 class MotionControlDialog;
+class RunModeWidget;
 class SettingsDialog;
 class QComboBox;
 class QDoubleSpinBox;
@@ -53,6 +56,11 @@ private:
     DrawMark,
   };
 
+  enum class AppMode {
+    Editor,
+    Run,
+  };
+
   void buildMenus();
   void buildCentralUi();
   void buildLeftWorkbench(class QBoxLayout *parentLayout);
@@ -60,8 +68,10 @@ private:
   void buildRoiPage();
   void buildMarkPage();
   void buildTemplatePage();
+  void buildRunInterface();
   void appendLog(const QString &message);
   void refreshStatusSummary();
+  void refreshTemplatePreviewSummary();
   void refreshProgramWidgets();
   void refreshWorkbenchScene(bool keepView = true);
   void refreshCameraState();
@@ -78,9 +88,13 @@ private:
   void startCameraPreview();
   void stopCameraPreview();
   void updateCameraFrame();
+  void openMarkOffsetCalibration();
+  void openOriginCalibration();
   void toggleCodeCameraView();
   void toggleFovOverlay();
   void resetWorkbenchView();
+  void applyMechanicalPose(const MechanicalPose &pose, const QString &reason);
+  void captureCurrentTemplateImage();
   void setCanvasMode(CanvasMode mode);
   void setCurrentPage(int index);
   void handleDrawnRegion(const QRectF &sceneRect);
@@ -101,8 +115,20 @@ private:
   void updateSelectedMarkFromScene(const QPointF &centerScenePos);
   void updateSelectedRoiFromScene(const QPointF &topLeftScenePos);
 
+  // Mode switching
+  void switchToEditorMode();
+  void switchToRunMode();
+
+  // Workflow runtime
+  void startWorkflowRun();
+  void stopWorkflowRun();
+  void pauseWorkflowRun();
+  void advanceWorkflowStep();
+
   [[nodiscard]] QString projectRootPath() const;
   [[nodiscard]] QString projectFilePath(const QString &relativePath) const;
+  [[nodiscard]] QImage currentCalibrationFrame() const;
+  [[nodiscard]] MechanicalPose currentMechanicalPose() const;
   [[nodiscard]] QString cameraModeText() const;
   [[nodiscard]] QString motionStateText() const;
   [[nodiscard]] QString currentMarkShapeText() const;
@@ -113,11 +139,13 @@ private:
   UsbCamera usbCamera_;
   VirtualMotionController virtualMotionController_;
   ProgramManager programManager_;
+  ProcessEngine processEngine_;
   AppSettings appSettings_;
   MotionControlDialog *motionControlDialog_ {nullptr};
   LogWindow *logWindow_ {nullptr};
   SettingsDialog *settingsDialog_ {nullptr};
   QTimer *cameraTimer_ {nullptr};
+  QTimer *workflowTimer_ {nullptr};
   int cameraDeviceIndex_ {0};
   double cameraExposureMs_ {12.0};
   double cameraGain_ {0.0};
@@ -128,9 +156,17 @@ private:
   bool showCodeCameraView_ {false};
   bool workbenchViewInitialized_ {false};
   CanvasMode canvasMode_ {CanvasMode::Select};
+  AppMode appMode_ {AppMode::Editor};
   int selectedMarkIndex_ {-1};
   int selectedRoiIndex_ {-1};
 
+  // Workflow state
+  WorkflowContext workflowContext_;
+  int workflowStepIndex_ {0};
+  int workflowTotalSteps_ {0};
+  bool workflowRunning_ {false};
+
+  // Editor widgets
   CadGraphicsView *workbenchGraphicsView_ {nullptr};
   CadRulerWidget *topRulerWidget_ {nullptr};
   CadRulerWidget *leftRulerWidget_ {nullptr};
@@ -154,6 +190,8 @@ private:
   QLabel *roiCountValueLabel_ {nullptr};
   QLabel *motionStatusValueLabel_ {nullptr};
   QLabel *templatePreviewValueLabel_ {nullptr};
+  QLabel *templateCachePreviewLabel_ {nullptr};
+  QLabel *calibrationSummaryValueLabel_ {nullptr};
   QLabel *codeResultValueLabel_ {nullptr};
   QLabel *markPreviewScoreValueLabel_ {nullptr};
   QLabel *markLiveScoreValueLabel_ {nullptr};
@@ -179,6 +217,14 @@ private:
   QComboBox *roiShapeComboBox_ {nullptr};
   QLineEdit *codeRegionLineEdit_ {nullptr};
   QProgressBar *markPreviewProgressBar_ {nullptr};
+  QString lastTemplateCapturePath_;
+
+  // Mode switching
+  QPushButton *switchToRunButton_ {nullptr};
+  QPushButton *switchToEditorButton_ {nullptr};
+  QStackedWidget *mainStackedWidget_ {nullptr};
+  QWidget *editorPage_ {nullptr};
+  RunModeWidget *runModeWidget_ {nullptr};
 };
 
 #endif

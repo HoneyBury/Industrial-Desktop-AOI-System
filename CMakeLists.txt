@@ -69,11 +69,26 @@ add_library(aoi_core
   src/common/Logger.cpp
   src/config/AppSettings.cpp
   src/camera/UsbCamera.cpp
+  src/calibration/CameraIntrinsicCalibrator.cpp
+  src/calibration/LaserOffsetCalibrator.cpp
+  src/calibration/MarkReferenceCalibrator.cpp
+  src/calibration/OriginCalibrator.cpp
+  src/calibration/PixelScaleCalibrator.cpp
+  src/coordinate/CoordinateTransformer.cpp
+  src/alignment/MarkAlignmentSolver.cpp
+  src/alignment/MarkDetector.cpp
+  src/process/IProcessStep.cpp
+  src/process/BoardWorkflow.cpp
+  src/process/ProcessEngine.cpp
+  src/process/MarkAlignStep.cpp
+  src/process/DefectInspectStep.cpp
+  src/process/PreLaserStep.cpp
+  src/process/LaserExecuteStep.cpp
+  src/process/PostLaserVerifyStep.cpp
   src/vision/CameraCalibrator.cpp
   src/vision/MarkDetector.cpp
   src/vision/RoiDetector.cpp
   src/vision/CodeReader.cpp
-  src/vision/CoordinateTransformer.cpp
   src/motion/VirtualMotionController.cpp
   src/program/ProgramManager.cpp
   src/database/DatabaseManager.cpp
@@ -110,8 +125,12 @@ if(AOI_HAS_QT)
     src/ui/MainWindow.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.ui
+    src/ui/RunModeWidget.cpp
+    src/ui/RunModeWidget.h
     src/ui/CadGraphicsView.cpp
     src/ui/CadGraphicsView.h
+    src/ui/CalibrationCaptureWidget.cpp
+    src/ui/CalibrationCaptureWidget.h
     src/ui/CadRulerWidget.cpp
     src/ui/CadRulerWidget.h
     src/ui/CameraCalibDialog.cpp

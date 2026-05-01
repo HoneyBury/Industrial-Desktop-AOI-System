@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "vision/CoordinateTransformer.h"
+#include "coordinate/CoordinateTransformer.h"
 
 TEST(MarkOffsetTest, ComputesDualMarkRotationDegrees) {
   CoordinateTransformer transformer(0.01, 0.01);
@@ -11,4 +11,3 @@ TEST(MarkOffsetTest, ComputesDualMarkRotationDegrees) {
 
   EXPECT_NEAR(angle, 5.7105931375, 1e-6);
 }
-

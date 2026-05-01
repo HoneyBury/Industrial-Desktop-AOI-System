@@ -7,12 +7,16 @@
 #include "ui/CadRulerWidget.h"
 #include "ui/CameraCalibDialog.h"
 #include "ui/LogWindow.h"
+#include "ui/MarkOffsetDialog.h"
 #include "ui/MotionControlDialog.h"
+#include "ui/OriginCalibDialog.h"
 #include "ui/ProgramEditDialog.h"
+#include "ui/RunModeWidget.h"
 #include "ui/SettingsDialog.h"
 #include "ui_MainWindow.h"
 
 #include "vision/CodeReader.h"
+#include "vision/CoordinateTransformer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -54,6 +58,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QStringList>
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTimer>
@@ -161,6 +166,16 @@ QImage cameraFrameToQImage(const CameraFrame &frame) {
   }
 
   return {};
+}
+
+QString persistFrameToTempFile(const QImage &image, const QString &prefix) {
+  if (image.isNull()) {
+    return {};
+  }
+
+  const QString path =
+      QDir::temp().filePath(QStringLiteral("%1_%2.png").arg(prefix).arg(QDateTime::currentMSecsSinceEpoch()));
+  return image.save(path) ? path : QString();
 }
 
 QRectF workbenchFovRect(const QSize &frameSize) {
@@ -387,6 +402,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui_(new Ui::MainW
   cameraTimer_->setInterval(90);
   connect(cameraTimer_, &QTimer::timeout, this, &MainWindow::updateCameraFrame);
 
+  workflowTimer_ = new QTimer(this);
+  workflowTimer_->setInterval(600);
+  connect(workflowTimer_, &QTimer::timeout, this, &MainWindow::advanceWorkflowStep);
+
   appSettings_ = AppSettingsManager::load(projectFilePath(QStringLiteral("config/app_settings.json")).toStdString());
 
   logWindow_ = new LogWindow();
@@ -406,10 +425,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui_(new Ui::MainW
 
   appendLog(QStringLiteral("主界面已切换为 CAD 式预览工位布局。"));
   appendLog(QStringLiteral("左侧支持中键拖拽、滚轮缩放、左键框选生成 Mark/ROI。"));
+  appendLog(QStringLiteral("可通过右上角按钮切换至运行模式。"));
 }
 
 MainWindow::~MainWindow() {
   stopCameraPreview();
+  stopWorkflowRun();
   delete ui_;
 }
 
@@ -431,6 +452,10 @@ void MainWindow::buildMenus() {
   auto *motionMenu = menuBar()->addMenu(QStringLiteral("运控"));
   auto *openMotionAction = motionMenu->addAction(QStringLiteral("打开虚拟运控面板"));
 
+  auto *calibrationMenu = menuBar()->addMenu(QStringLiteral("校正"));
+  auto *markOffsetAction = calibrationMenu->addAction(QStringLiteral("Mark 点校正"));
+  auto *originCalibAction = calibrationMenu->addAction(QStringLiteral("机械原点校正"));
+
   auto *viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
   auto *openLogAction = viewMenu->addAction(QStringLiteral("运行日志"));
 
@@ -443,6 +468,8 @@ void MainWindow::buildMenus() {
   connect(startPreviewAction, &QAction::triggered, this, &MainWindow::startCameraPreview);
   connect(stopPreviewAction, &QAction::triggered, this, &MainWindow::stopCameraPreview);
   connect(openMotionAction, &QAction::triggered, this, &MainWindow::openMotionPanel);
+  connect(markOffsetAction, &QAction::triggered, this, &MainWindow::openMarkOffsetCalibration);
+  connect(originCalibAction, &QAction::triggered, this, &MainWindow::openOriginCalibration);
   connect(openLogAction, &QAction::triggered, this, &MainWindow::openLogWindow);
 
   auto *toolBar = addToolBar(QStringLiteral("主工具栏"));
@@ -470,19 +497,72 @@ void MainWindow::buildCentralUi() {
   headerFrame->setStyleSheet(
       QStringLiteral("QFrame { background: #0f172a; border-radius: 14px; } QLabel { color: #e2e8f0; }"));
   auto *headerLayout = new QHBoxLayout(headerFrame);
-  auto *titleLabel = new QLabel(QStringLiteral("工业 AOI 视觉上位机"), headerFrame);
-  titleLabel->setStyleSheet(QStringLiteral("font-size: 26px; font-weight: 800; color: #f8fafc;"));
+
+  auto makeStatusChip = [headerFrame](const QString &label, QLabel *&valueLabel, const QString &initialValue,
+                                      const int minWidth = 72) {
+    auto *chip = new QFrame(headerFrame);
+    chip->setStyleSheet(QStringLiteral(
+        "QFrame { background: #1e293b; border: 1px solid #334155; border-radius: 8px; }"
+        "QLabel { color: #cbd5e1; }"));
+    auto *chipLayout = new QHBoxLayout(chip);
+    chipLayout->setContentsMargins(10, 5, 10, 5);
+    chipLayout->setSpacing(6);
+    auto *labelWidget = new QLabel(label, chip);
+    labelWidget->setStyleSheet(QStringLiteral("color: #64748b; font-size: 11px;"));
+    valueLabel = new QLabel(initialValue, chip);
+    valueLabel->setStyleSheet(QStringLiteral("color: #e2e8f0; font-size: 11px; font-weight: 700;"));
+    valueLabel->setMinimumWidth(minWidth);
+    valueLabel->setAlignment(Qt::AlignCenter);
+    chipLayout->addWidget(labelWidget);
+    chipLayout->addWidget(valueLabel);
+    return chip;
+  };
+
+  auto *posChip = makeStatusChip(QStringLiteral("坐标"), cursorPositionValueLabel_, QStringLiteral("X=0.0 Y=0.0"), 112);
+  auto *zoomChip = makeStatusChip(QStringLiteral("缩放"), zoomValueLabel_, QStringLiteral("100%"), 64);
+  auto *camModeChip = makeStatusChip(QStringLiteral("相机"), cameraModeValueLabel_, QStringLiteral("--"), 112);
+  auto *fovChip = makeStatusChip(QStringLiteral("FOV"), fovInfoValueLabel_, QStringLiteral("640 x 360"), 96);
+  auto *statusChip = makeStatusChip(QStringLiteral("状态"), cameraStatusToolbarValueLabel_, QStringLiteral("未启动"), 88);
+
   statusSummaryValueLabel_ = new QLabel(QStringLiteral("系统初始化中"), headerFrame);
   statusSummaryValueLabel_->setStyleSheet(
       QStringLiteral("padding: 8px 12px; background: rgba(148,163,184,0.16); border-radius: 10px;"));
-  headerLayout->addWidget(titleLabel);
+  headerLayout->addWidget(posChip);
+  headerLayout->addWidget(zoomChip);
+  headerLayout->addWidget(camModeChip);
+  headerLayout->addWidget(fovChip);
+  headerLayout->addWidget(statusChip);
   headerLayout->addStretch();
+
+  // Mode switch button
+  switchToRunButton_ = new QPushButton(QStringLiteral("运行模式"), headerFrame);
+  switchToRunButton_->setStyleSheet(QStringLiteral(
+      "QPushButton { background: #16a34a; color: #f8fafc; border: 1px solid #22c55e; border-radius: 8px; "
+      "  padding: 8px 18px; min-height: 30px; font-weight: 700; font-size: 12px; }"
+      "QPushButton:hover { background: #22c55e; }"));
+  switchToEditorButton_ = new QPushButton(QStringLiteral("返回编辑"), headerFrame);
+  switchToEditorButton_->setStyleSheet(QStringLiteral(
+      "QPushButton { background: #1e3a5f; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; "
+      "  padding: 8px 18px; min-height: 30px; font-weight: 700; font-size: 12px; }"
+      "QPushButton:hover { background: #2563eb; }"));
+  switchToEditorButton_->setVisible(false);
+
+  headerLayout->addWidget(switchToRunButton_);
+  headerLayout->addWidget(switchToEditorButton_);
   headerLayout->addWidget(statusSummaryValueLabel_);
   rootLayout->addWidget(headerFrame);
 
-  auto *splitter = new QSplitter(Qt::Horizontal, centralWidget);
+  // Main stacked widget: editor (0) / run (1)
+  mainStackedWidget_ = new QStackedWidget(centralWidget);
+
+  // Page 0: Editor interface
+  editorPage_ = new QWidget(mainStackedWidget_);
+  auto *editorLayout = new QHBoxLayout(editorPage_);
+  editorLayout->setContentsMargins(0, 0, 0, 0);
+  editorLayout->setSpacing(0);
+
+  auto *splitter = new QSplitter(Qt::Horizontal, editorPage_);
   splitter->setChildrenCollapsible(false);
-  rootLayout->addWidget(splitter, 1);
 
   auto *leftWidget = new QWidget(splitter);
   auto *leftLayout = new QVBoxLayout(leftWidget);
@@ -504,6 +584,20 @@ void MainWindow::buildCentralUi() {
   splitter->setHandleWidth(4);
 
   rightWidget->setMinimumWidth(380);
+  editorLayout->addWidget(splitter);
+  mainStackedWidget_->addWidget(editorPage_);
+
+  // Page 1: Run interface
+  buildRunInterface();
+  mainStackedWidget_->addWidget(runModeWidget_);
+
+  rootLayout->addWidget(mainStackedWidget_, 1);
+
+  // Mode switch connections
+  connect(switchToRunButton_, &QPushButton::clicked, this, &MainWindow::switchToRunMode);
+  connect(switchToEditorButton_, &QPushButton::clicked, this, &MainWindow::switchToEditorMode);
+
+  mainStackedWidget_->setCurrentIndex(0);
 
   statusBar()->showMessage(QStringLiteral("就绪"));
 }
@@ -521,8 +615,10 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   toolbarOuterLayout->setContentsMargins(8, 8, 8, 8);
   toolbarOuterLayout->setSpacing(6);
 
-  auto *buttonRow = new QHBoxLayout;
-  buttonRow->setSpacing(6);
+  auto *buttonRowTop = new QHBoxLayout;
+  buttonRowTop->setSpacing(6);
+  auto *buttonRowBottom = new QHBoxLayout;
+  buttonRowBottom->setSpacing(6);
 
   auto *selectModeButton = new QPushButton(QStringLiteral("选择"), toolbarFrame);
   auto *drawRoiButton = new QPushButton(QStringLiteral("框选 ROI"), toolbarFrame);
@@ -530,6 +626,8 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   auto *fitViewButton = new QPushButton(QStringLiteral("适配视图"), toolbarFrame);
   auto *startPreviewButton = new QPushButton(QStringLiteral("开始实时采图"), toolbarFrame);
   auto *stopPreviewButton = new QPushButton(QStringLiteral("停止采图"), toolbarFrame);
+  auto *markCalibButton = new QPushButton(QStringLiteral("Mark 校正"), toolbarFrame);
+  auto *originCalibButton = new QPushButton(QStringLiteral("原点校正"), toolbarFrame);
   toggleCodeCameraViewButton_ = new QPushButton(QStringLiteral("读码相机视图"), toolbarFrame);
   toggleFovButton_ = new QPushButton(QStringLiteral("隐藏 FOV 640x360"), toolbarFrame);
   auto *gestureHelpButton = new QPushButton(QStringLiteral("? 操作提示"), toolbarFrame);
@@ -545,55 +643,24 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
       "  padding: 5px 14px; min-height: 26px; }"
       "QPushButton:hover { background: #2563eb; }"));
 
-  buttonRow->addWidget(selectModeButton);
-  buttonRow->addWidget(drawRoiButton);
-  buttonRow->addWidget(drawMarkButton);
-  buttonRow->addWidget(fitViewButton);
-  buttonRow->addWidget(startPreviewButton);
-  buttonRow->addWidget(stopPreviewButton);
-  buttonRow->addWidget(toggleCodeCameraViewButton_);
-  buttonRow->addWidget(toggleFovButton_);
-  buttonRow->addStretch();
-  buttonRow->addWidget(settingsButton);
-  buttonRow->addWidget(gestureHelpButton);
+  buttonRowTop->addWidget(selectModeButton);
+  buttonRowTop->addWidget(drawRoiButton);
+  buttonRowTop->addWidget(drawMarkButton);
+  buttonRowTop->addWidget(fitViewButton);
+  buttonRowTop->addWidget(startPreviewButton);
+  buttonRowTop->addWidget(stopPreviewButton);
+  buttonRowTop->addStretch();
+  buttonRowTop->addWidget(settingsButton);
 
-  auto *statusRow = new QHBoxLayout;
-  statusRow->setSpacing(4);
+  buttonRowBottom->addWidget(markCalibButton);
+  buttonRowBottom->addWidget(originCalibButton);
+  buttonRowBottom->addWidget(toggleCodeCameraViewButton_);
+  buttonRowBottom->addWidget(toggleFovButton_);
+  buttonRowBottom->addStretch();
+  buttonRowBottom->addWidget(gestureHelpButton);
 
-  auto makeStatusChip = [toolbarFrame](const QString &label, QLabel *&valueLabel, const QString &initialValue) {
-    auto *chip = new QFrame(toolbarFrame);
-    chip->setStyleSheet(QStringLiteral(
-        "QFrame { background: #1e293b; border: 1px solid #334155; border-radius: 6px; }"
-        "QLabel { color: #cbd5e1; }"));
-    auto *chipLayout = new QHBoxLayout(chip);
-    chipLayout->setContentsMargins(8, 3, 8, 3);
-    chipLayout->setSpacing(4);
-    auto *labelWidget = new QLabel(label, chip);
-    labelWidget->setStyleSheet(QStringLiteral("color: #64748b; font-size: 11px;"));
-    valueLabel = new QLabel(initialValue, chip);
-    valueLabel->setStyleSheet(QStringLiteral("color: #e2e8f0; font-size: 11px; font-weight: 600;"));
-    valueLabel->setMinimumWidth(70);
-    valueLabel->setAlignment(Qt::AlignCenter);
-    chipLayout->addWidget(labelWidget);
-    chipLayout->addWidget(valueLabel);
-    return chip;
-  };
-
-  auto *posChip = makeStatusChip(QStringLiteral("坐标"), cursorPositionValueLabel_, QStringLiteral("X=0.0 Y=0.0"));
-  auto *zoomChip = makeStatusChip(QStringLiteral("缩放"), zoomValueLabel_, QStringLiteral("100%"));
-  auto *camModeChip = makeStatusChip(QStringLiteral("相机模式"), cameraModeValueLabel_, QStringLiteral("--"));
-  auto *fovChip = makeStatusChip(QStringLiteral("FOV"), fovInfoValueLabel_, QStringLiteral("640 x 360"));
-  auto *statusChip = makeStatusChip(QStringLiteral("状态"), cameraStatusToolbarValueLabel_, QStringLiteral("未启动"));
-
-  statusRow->addWidget(posChip);
-  statusRow->addWidget(zoomChip);
-  statusRow->addWidget(camModeChip);
-  statusRow->addWidget(fovChip);
-  statusRow->addWidget(statusChip);
-  statusRow->addStretch();
-
-  toolbarOuterLayout->addLayout(buttonRow);
-  toolbarOuterLayout->addLayout(statusRow);
+  toolbarOuterLayout->addLayout(buttonRowTop);
+  toolbarOuterLayout->addLayout(buttonRowBottom);
   parentLayout->addWidget(toolbarFrame);
 
   auto *graphicsGroupBox = new QGroupBox(QStringLiteral("CAD 拼接工位图"), this);
@@ -643,6 +710,8 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   connect(fitViewButton, &QPushButton::clicked, this, &MainWindow::resetWorkbenchView);
   connect(startPreviewButton, &QPushButton::clicked, this, &MainWindow::startCameraPreview);
   connect(stopPreviewButton, &QPushButton::clicked, this, &MainWindow::stopCameraPreview);
+  connect(markCalibButton, &QPushButton::clicked, this, &MainWindow::openMarkOffsetCalibration);
+  connect(originCalibButton, &QPushButton::clicked, this, &MainWindow::openOriginCalibration);
   connect(toggleCodeCameraViewButton_, &QPushButton::clicked, this, &MainWindow::toggleCodeCameraView);
   connect(toggleFovButton_, &QPushButton::clicked, this, &MainWindow::toggleFovOverlay);
   connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
@@ -946,6 +1015,24 @@ void MainWindow::buildTemplatePage() {
   templateLayout->addRow(QStringLiteral("当前实拍分"), markLiveScoreValueLabel_);
   layout->addWidget(templateGroupBox);
 
+  auto *templateCacheGroupBox = new QGroupBox(QStringLiteral("模板缓存预览"), page);
+  auto *templateCacheLayout = new QVBoxLayout(templateCacheGroupBox);
+  templateCachePreviewLabel_ = new QLabel(QStringLiteral("当前还没有缓存模板图"), templateCacheGroupBox);
+  templateCachePreviewLabel_->setAlignment(Qt::AlignCenter);
+  templateCachePreviewLabel_->setMinimumHeight(220);
+  templateCachePreviewLabel_->setWordWrap(true);
+  templateCachePreviewLabel_->setStyleSheet(QStringLiteral(
+      "QLabel { background: #020617; border: 1px solid #334155; border-radius: 12px; color: #94a3b8; }"));
+  templateCacheLayout->addWidget(templateCachePreviewLabel_);
+  layout->addWidget(templateCacheGroupBox);
+
+  auto *calibrationGroupBox = new QGroupBox(QStringLiteral("校正结果"), page);
+  auto *calibrationLayout = new QVBoxLayout(calibrationGroupBox);
+  calibrationSummaryValueLabel_ = new QLabel(QStringLiteral("当前还没有校正结果。"), calibrationGroupBox);
+  calibrationSummaryValueLabel_->setWordWrap(true);
+  calibrationLayout->addWidget(calibrationSummaryValueLabel_);
+  layout->addWidget(calibrationGroupBox);
+
   auto *guideGroupBox = new QGroupBox(QStringLiteral("当前工艺策略"), page);
   auto *guideLayout = new QVBoxLayout(guideGroupBox);
   auto *guideLabel = new QLabel(
@@ -960,8 +1047,10 @@ void MainWindow::buildTemplatePage() {
 
   auto *buttonLayout = new QHBoxLayout;
   auto *testCodeButton = new QPushButton(QStringLiteral("测试读码"), page);
+  auto *captureTemplateButton = new QPushButton(QStringLiteral("抓取当前模板图"), page);
   auto *saveButton = new QPushButton(QStringLiteral("保存当前程序"), page);
   buttonLayout->addWidget(testCodeButton);
+  buttonLayout->addWidget(captureTemplateButton);
   buttonLayout->addWidget(saveButton);
   buttonLayout->addStretch();
   layout->addLayout(buttonLayout);
@@ -971,6 +1060,7 @@ void MainWindow::buildTemplatePage() {
   toolStackedWidget_->addWidget(scrollArea);
 
   connect(testCodeButton, &QPushButton::clicked, this, &MainWindow::testCodeReading);
+  connect(captureTemplateButton, &QPushButton::clicked, this, &MainWindow::captureCurrentTemplateImage);
   connect(saveButton, &QPushButton::clicked, this, &MainWindow::saveCurrentProgram);
   connect(codeRegionLineEdit_, &QLineEdit::editingFinished, this, &MainWindow::syncProgramFromEditors);
 }
@@ -985,16 +1075,95 @@ void MainWindow::appendLog(const QString &message) {
 
 void MainWindow::refreshStatusSummary() {
   statusSummaryValueLabel_->setText(
-      QStringLiteral("程序：%1 | 相机：%2 | 运控：%3 | 模式：%4")
+      QStringLiteral("程序：%1 | 运控：%2 | 模式：%3")
           .arg(programManager_.currentProgram().has_value()
                    ? QString::fromStdString(programManager_.currentProgram()->name)
                    : QStringLiteral("未加载"))
-          .arg(cameraStatusToolbarValueLabel_ != nullptr ? cameraStatusToolbarValueLabel_->text()
-                                                         : QStringLiteral("未启动"))
           .arg(motionStateText())
           .arg(canvasMode_ == CanvasMode::DrawMark ? QStringLiteral("框选 Mark")
                                                    : (canvasMode_ == CanvasMode::DrawRoi ? QStringLiteral("框选 ROI")
                                                                                         : QStringLiteral("选择"))));
+}
+
+void MainWindow::refreshTemplatePreviewSummary() {
+  if (templatePreviewValueLabel_ == nullptr) {
+    return;
+  }
+
+  const auto currentProgram = programManager_.currentProgram();
+  if (!currentProgram.has_value()) {
+    templatePreviewValueLabel_->setText(QStringLiteral("当前未选择任何 Mark / ROI"));
+    if (templateCachePreviewLabel_ != nullptr) {
+      templateCachePreviewLabel_->setPixmap(QPixmap());
+      templateCachePreviewLabel_->setText(QStringLiteral("当前还没有缓存模板图"));
+    }
+    if (calibrationSummaryValueLabel_ != nullptr) {
+      calibrationSummaryValueLabel_->setText(QStringLiteral("当前还没有校正结果。"));
+    }
+    return;
+  }
+
+  QStringList lines;
+  QStringList calibrationLines;
+  if (selectedMarkIndex_ >= 0 && selectedMarkIndex_ < static_cast<int>(currentProgram->marks.size())) {
+    lines << QStringLiteral("当前 Mark：%1")
+                 .arg(QString::fromStdString(currentProgram->marks[static_cast<std::size_t>(selectedMarkIndex_)].name));
+  } else if (selectedRoiIndex_ >= 0 && selectedRoiIndex_ < static_cast<int>(currentProgram->rois.size())) {
+    lines << QStringLiteral("当前 ROI：%1")
+                 .arg(QString::fromStdString(currentProgram->rois[static_cast<std::size_t>(selectedRoiIndex_)].name));
+  } else {
+    lines << QStringLiteral("当前未选择任何 Mark / ROI");
+  }
+
+  lines << QStringLiteral("模板缓存：%1")
+               .arg(currentProgram->templateCachePath.empty()
+                        ? QStringLiteral("暂无")
+                        : QString::fromStdString(currentProgram->templateCachePath));
+  lines << QStringLiteral("匹配结果：%1")
+               .arg(currentProgram->latestTemplateMatchSummary.empty()
+                        ? QStringLiteral("暂无")
+                        : QString::fromStdString(currentProgram->latestTemplateMatchSummary));
+
+  if (currentProgram->hasMarkCalibration) {
+    calibrationLines << QStringLiteral("Mark 校正：dX=%1 mm, dY=%2 mm, dR=%3°")
+                            .arg(currentProgram->markCalibrationOffsetXmm, 0, 'f', 4)
+                            .arg(currentProgram->markCalibrationOffsetYmm, 0, 'f', 4)
+                            .arg(currentProgram->markCalibrationRotationDegrees, 0, 'f', 3);
+  }
+
+  if (currentProgram->hasOriginCalibration) {
+    calibrationLines << QStringLiteral("原点补偿：X=%1, Y=%2, Z=%3, R=%4")
+                            .arg(currentProgram->originCorrectedX, 0, 'f', 3)
+                            .arg(currentProgram->originCorrectedY, 0, 'f', 3)
+                            .arg(currentProgram->originCorrectedZ, 0, 'f', 3)
+                            .arg(currentProgram->originCorrectedR, 0, 'f', 3);
+  }
+
+  templatePreviewValueLabel_->setText(lines.join(QStringLiteral("\n")));
+
+  if (templateCachePreviewLabel_ != nullptr) {
+    if (!currentProgram->templateCachePath.empty()) {
+      const QString cachePath = QString::fromStdString(currentProgram->templateCachePath);
+      const QPixmap pixmap(cachePath);
+      if (!pixmap.isNull()) {
+        templateCachePreviewLabel_->setText(QString());
+        templateCachePreviewLabel_->setPixmap(
+            pixmap.scaled(templateCachePreviewLabel_->size() - QSize(12, 12), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+      } else {
+        templateCachePreviewLabel_->setPixmap(QPixmap());
+        templateCachePreviewLabel_->setText(QStringLiteral("模板缓存图存在，但当前无法预览。\n%1").arg(cachePath));
+      }
+    } else {
+      templateCachePreviewLabel_->setPixmap(QPixmap());
+      templateCachePreviewLabel_->setText(QStringLiteral("当前还没有缓存模板图"));
+    }
+  }
+
+  if (calibrationSummaryValueLabel_ != nullptr) {
+    calibrationSummaryValueLabel_->setText(
+        calibrationLines.isEmpty() ? QStringLiteral("当前还没有校正结果。")
+                                   : calibrationLines.join(QStringLiteral("\n")));
+  }
 }
 
 void MainWindow::refreshProgramWidgets() {
@@ -1012,6 +1181,7 @@ void MainWindow::refreshProgramWidgets() {
     if (markTableWidget_ != nullptr) markTableWidget_->setRowCount(0);
     if (roiTableWidget_ != nullptr) roiTableWidget_->setRowCount(0);
     if (codeRegionLineEdit_ != nullptr) codeRegionLineEdit_->clear();
+    refreshTemplatePreviewSummary();
     refreshWorkbenchScene();
     refreshStatusSummary();
     return;
@@ -1062,6 +1232,7 @@ void MainWindow::refreshProgramWidgets() {
   }
 
   if (codeRegionLineEdit_ != nullptr) codeRegionLineEdit_->setText(QString::fromStdString(currentProgram->codeRegionName));
+  refreshTemplatePreviewSummary();
   refreshWorkbenchScene();
   refreshTableSelections();
   updateMarkEditorFromSelection();
@@ -1331,6 +1502,63 @@ void MainWindow::openMotionPanel() {
   motionControlDialog_->activateWindow();
 }
 
+void MainWindow::openMarkOffsetCalibration() {
+  if (!usbCamera_.isOpened()) {
+    startCameraPreview();
+  }
+
+  MarkOffsetDialog dialog(this);
+  dialog.setFrameProvider([this] { return currentCalibrationFrame(); },
+                          [this] { return usbCamera_.isOpened(); });
+  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+    dialog.setAlignmentContext(currentProgram->marks, currentProgram->pixelScaleCalibration);
+  }
+  connect(&dialog, &MarkOffsetDialog::compensationApplied, this,
+          [this](const double deltaXmm, const double deltaYmm, const double rotationDegrees) {
+            updateProgram([deltaXmm, deltaYmm, rotationDegrees](ProgramModel &program) {
+              program.hasMarkCalibration = true;
+              program.markCalibrationOffsetXmm = deltaXmm;
+              program.markCalibrationOffsetYmm = deltaYmm;
+              program.markCalibrationRotationDegrees = rotationDegrees;
+            });
+            MechanicalPose pose = currentMechanicalPose();
+            pose.x -= deltaXmm;
+            pose.y -= deltaYmm;
+            pose.r -= rotationDegrees;
+            applyMechanicalPose(pose, QStringLiteral("Mark 校正补偿"));
+            refreshTemplatePreviewSummary();
+          });
+  dialog.exec();
+}
+
+void MainWindow::openOriginCalibration() {
+  if (!usbCamera_.isOpened()) {
+    startCameraPreview();
+  }
+
+  OriginCalibDialog dialog(this);
+  dialog.setFrameProvider([this] { return currentCalibrationFrame(); },
+                          [this] { return usbCamera_.isOpened(); });
+  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+    dialog.setCalibrationContext(currentProgram->calibrationData, currentMechanicalPose());
+  } else {
+    dialog.setCalibrationContext(CameraCalibrationData {}, currentMechanicalPose());
+  }
+  connect(&dialog, &OriginCalibDialog::correctedPoseApplied, this,
+          [this](const double x, const double y, const double z, const double r) {
+            updateProgram([x, y, z, r](ProgramModel &program) {
+              program.hasOriginCalibration = true;
+              program.originCorrectedX = x;
+              program.originCorrectedY = y;
+              program.originCorrectedZ = z;
+              program.originCorrectedR = r;
+            });
+            applyMechanicalPose(MechanicalPose {x, y, z, r}, QStringLiteral("原点校正补偿"));
+            refreshTemplatePreviewSummary();
+          });
+  dialog.exec();
+}
+
 void MainWindow::openLogWindow() {
   if (logWindow_ == nullptr) {
     return;
@@ -1523,6 +1751,7 @@ void MainWindow::selectMarkIndex(const int index) {
   selectedRoiIndex_ = -1;
   refreshTableSelections();
   updateMarkEditorFromSelection();
+  refreshTemplatePreviewSummary();
   refreshWorkbenchScene();
 }
 
@@ -1531,6 +1760,7 @@ void MainWindow::selectRoiIndex(const int index) {
   selectedMarkIndex_ = -1;
   refreshTableSelections();
   updateRoiEditorFromSelection();
+  refreshTemplatePreviewSummary();
   refreshWorkbenchScene();
 }
 
@@ -1638,7 +1868,41 @@ void MainWindow::previewMarkMatching() {
   if (const auto currentProgram = programManager_.currentProgram();
       currentProgram.has_value() && selectedMarkIndex_ >= 0 &&
       selectedMarkIndex_ < static_cast<int>(currentProgram->marks.size())) {
-    const auto &mark = currentProgram->marks[static_cast<std::size_t>(selectedMarkIndex_)];
+    auto mark = currentProgram->marks[static_cast<std::size_t>(selectedMarkIndex_)];
+    QString detectSummary = QStringLiteral("当前未接入实时检测");
+
+    if (!lastCameraFrameImage_.isNull()) {
+      const QString tempImagePath = persistFrameToTempFile(lastCameraFrameImage_, QStringLiteral("mark_preview"));
+      if (!tempImagePath.isEmpty()) {
+        MarkDetector detector;
+        const auto detectResult = mark.algorithm == MarkAlgorithm::BinaryGeometry
+                                      ? detector.detectCircularMarks(tempImagePath.toStdString())
+                                      : detector.detectTemplateMarks(tempImagePath.toStdString());
+        if (detectResult && !detectResult.value.empty()) {
+          const auto &detectedMark = detectResult.value.front();
+          mark.previewScore = std::clamp(detectedMark.previewScore, 0.0, 1.0);
+          mark.score = std::clamp(detectedMark.score, 0.0, 1.0);
+          detectSummary = QStringLiteral("检测到 %1 个候选，采用第一个候选：中心=(%2, %3)，检测分=%4")
+                              .arg(static_cast<int>(detectResult.value.size()))
+                              .arg(detectedMark.x, 0, 'f', 1)
+                              .arg(detectedMark.y, 0, 'f', 1)
+                              .arg(detectedMark.score, 0, 'f', 3);
+        } else if (!detectResult) {
+          detectSummary = QStringLiteral("实时检测失败：%1").arg(QString::fromStdString(detectResult.message));
+        } else {
+          detectSummary = QStringLiteral("实时检测未返回任何候选");
+        }
+      }
+    }
+
+    updateProgram([this, &mark, detectSummary](ProgramModel &program) {
+      if (selectedMarkIndex_ >= 0 && selectedMarkIndex_ < static_cast<int>(program.marks.size())) {
+        program.marks[static_cast<std::size_t>(selectedMarkIndex_)].previewScore = mark.previewScore;
+        program.marks[static_cast<std::size_t>(selectedMarkIndex_)].score = mark.score;
+        program.latestTemplateMatchSummary = detectSummary.toStdString();
+      }
+    });
+
     markPreviewScoreSpinBox_->setValue(mark.previewScore);
     markLiveScoreSpinBox_->setValue(mark.score);
     markPreviewProgressBar_->setValue(static_cast<int>(std::round(mark.previewScore * 100.0)));
@@ -1647,13 +1911,7 @@ void MainWindow::previewMarkMatching() {
     const bool pass = mark.score >= mark.minimumScore;
     markLiveScoreValueLabel_->setStyleSheet(pass ? QStringLiteral("color: #16a34a; font-weight: 700;")
                                                  : QStringLiteral("color: #dc2626; font-weight: 700;"));
-    templatePreviewValueLabel_->setText(
-        QStringLiteral("当前 Mark：%1\n算法：%2\n预览匹配度：%3\n实拍匹配度：%4\n阈值判断：%5")
-            .arg(QString::fromStdString(mark.name))
-            .arg(markAlgorithmDisplayText(mark.algorithm))
-            .arg(mark.previewScore, 0, 'f', 3)
-            .arg(mark.score, 0, 'f', 3)
-            .arg(pass ? QStringLiteral("通过") : QStringLiteral("低于阈值，需要调整")));
+    refreshTemplatePreviewSummary();
     appendLog(QStringLiteral("Mark 匹配度预览完成：%1，实拍匹配=%2，最低阈值=%3。")
                   .arg(QString::fromStdString(mark.name))
                   .arg(mark.score, 0, 'f', 3)
@@ -1668,6 +1926,41 @@ void MainWindow::testCodeReading() {
   codeResultValueLabel_->setText(result ? QString::fromStdString(result.value) : QStringLiteral("读码失败"));
   appendLog(result ? QStringLiteral("读码测试完成，结果=%1").arg(QString::fromStdString(result.value))
                    : QStringLiteral("读码测试失败：%1").arg(QString::fromStdString(result.message)));
+}
+
+void MainWindow::captureCurrentTemplateImage() {
+  if (lastCameraFrameImage_.isNull()) {
+    appendLog(QStringLiteral("当前没有可用的实时图像，无法抓取模板图。"));
+    return;
+  }
+
+  QString targetName = QStringLiteral("template_capture");
+  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+    if (selectedMarkIndex_ >= 0 && selectedMarkIndex_ < static_cast<int>(currentProgram->marks.size())) {
+      targetName = QString::fromStdString(currentProgram->marks[static_cast<std::size_t>(selectedMarkIndex_)].name);
+    } else if (selectedRoiIndex_ >= 0 && selectedRoiIndex_ < static_cast<int>(currentProgram->rois.size())) {
+      targetName = QString::fromStdString(currentProgram->rois[static_cast<std::size_t>(selectedRoiIndex_)].name);
+    }
+  }
+
+  QString templateRoot = appSettings_.templateFolderPath.empty()
+                             ? projectFilePath(QStringLiteral("data/template_cache"))
+                             : QString::fromStdString(appSettings_.templateFolderPath);
+  QDir().mkpath(templateRoot);
+  const QString outputPath = QDir(templateRoot).filePath(
+      QStringLiteral("%1_%2.png").arg(targetName).arg(QDateTime::currentMSecsSinceEpoch()));
+
+  if (!lastCameraFrameImage_.save(outputPath)) {
+    appendLog(QStringLiteral("模板图抓取失败：%1").arg(outputPath));
+    return;
+  }
+
+  lastTemplateCapturePath_ = outputPath;
+  updateProgram([outputPath](ProgramModel &program) {
+    program.templateCachePath = outputPath.toStdString();
+  });
+  refreshTemplatePreviewSummary();
+  appendLog(QStringLiteral("已抓取当前模板图：%1").arg(outputPath));
 }
 
 void MainWindow::centerOnCurrentSelection() {
@@ -1775,6 +2068,33 @@ QString MainWindow::projectFilePath(const QString &relativePath) const {
   return QDir(projectRootPath()).filePath(relativePath);
 }
 
+QImage MainWindow::currentCalibrationFrame() const {
+  return lastCameraFrameImage_;
+}
+
+MechanicalPose MainWindow::currentMechanicalPose() const {
+  return MechanicalPose {
+      virtualMotionController_.position(MotionAxis::X).value_or(0.0),
+      virtualMotionController_.position(MotionAxis::Y).value_or(0.0),
+      virtualMotionController_.position(MotionAxis::Z).value_or(0.0),
+      virtualMotionController_.position(MotionAxis::R).value_or(0.0),
+  };
+}
+
+void MainWindow::applyMechanicalPose(const MechanicalPose &pose, const QString &reason) {
+  virtualMotionController_.moveAbsolute(MotionAxis::X, pose.x);
+  virtualMotionController_.moveAbsolute(MotionAxis::Y, pose.y);
+  virtualMotionController_.moveAbsolute(MotionAxis::Z, pose.z);
+  virtualMotionController_.moveAbsolute(MotionAxis::R, pose.r);
+  refreshProgramWidgets();
+  appendLog(QStringLiteral("%1已应用到虚拟运控：X=%2, Y=%3, Z=%4, R=%5")
+                .arg(reason)
+                .arg(pose.x, 0, 'f', 3)
+                .arg(pose.y, 0, 'f', 3)
+                .arg(pose.z, 0, 'f', 3)
+                .arg(pose.r, 0, 'f', 3));
+}
+
 QString MainWindow::cameraModeText() const {
 #ifdef AOI_HAS_OPENCV
   return QStringLiteral("真实摄像头 + CAD 叠加");
@@ -1797,6 +2117,243 @@ QString MainWindow::currentMarkAlgorithmText() const {
 
 QString MainWindow::currentRoiShapeText() const {
   return roiShapeComboBox_ != nullptr ? roiShapeComboBox_->currentText() : QStringLiteral("矩形");
+}
+
+void MainWindow::buildRunInterface() {
+  runModeWidget_ = new RunModeWidget(mainStackedWidget_);
+  runModeWidget_->setFrameProvider([this] { return currentCalibrationFrame(); });
+  runModeWidget_->setTotalBoards(10);
+
+  connect(runModeWidget_, &RunModeWidget::startRequested, this, &MainWindow::startWorkflowRun);
+  connect(runModeWidget_, &RunModeWidget::stopRequested, this, &MainWindow::stopWorkflowRun);
+  connect(runModeWidget_, &RunModeWidget::pauseRequested, this, &MainWindow::pauseWorkflowRun);
+  connect(runModeWidget_, &RunModeWidget::singleStepRequested, this, &MainWindow::advanceWorkflowStep);
+}
+
+void MainWindow::switchToEditorMode() {
+  appMode_ = AppMode::Editor;
+  stopWorkflowRun();
+
+  if (mainStackedWidget_ != nullptr) {
+    mainStackedWidget_->setCurrentIndex(0);
+  }
+
+  if (switchToRunButton_ != nullptr) {
+    switchToRunButton_->setVisible(true);
+  }
+
+  if (switchToEditorButton_ != nullptr) {
+    switchToEditorButton_->setVisible(false);
+  }
+
+  appendLog(QStringLiteral("已切换到编辑模式。"));
+  refreshStatusSummary();
+}
+
+void MainWindow::switchToRunMode() {
+  appMode_ = AppMode::Run;
+
+  // Ensure camera is running
+  if (!usbCamera_.isOpened()) {
+    startCameraPreview();
+  }
+
+  // Initialize workflow context
+  const auto currentProgram = programManager_.currentProgram();
+  workflowContext_ = WorkflowContext {};
+  workflowContext_.boardId = "BOARD-001";
+  if (currentProgram.has_value()) {
+    // We need a mutable pointer for the workflow; use the program manager's non-const access.
+    workflowContext_.program = programManager_.mutableProgram();
+  }
+  workflowContext_.motionController = &virtualMotionController_;
+  workflowContext_.totalBoards = 10;
+  workflowContext_.boardIndex = runModeWidget_->currentBoardIndex();
+
+  workflowStepIndex_ = 0;
+  workflowTotalSteps_ = static_cast<int>(processEngine_.stepCount());
+  workflowRunning_ = false;
+
+  // Wire callbacks
+  workflowContext_.onStepProgress = [this](const int stepIdx, const int totalSteps,
+                                           const std::string &stepName, const StepExecutionStatus status) {
+    QString statusText;
+    switch (status) {
+    case StepExecutionStatus::Running:
+      statusText = QStringLiteral("执行中");
+      break;
+    case StepExecutionStatus::Succeeded:
+      statusText = QStringLiteral("完成");
+      break;
+    case StepExecutionStatus::Failed:
+      statusText = QStringLiteral("失败");
+      break;
+    case StepExecutionStatus::Skipped:
+      statusText = QStringLiteral("跳过");
+      break;
+    default:
+      statusText = QStringLiteral("等待");
+      break;
+    }
+
+    runModeWidget_->updateStepProgress(
+        QStringLiteral("步骤 %1/%2: %3 [%4]")
+            .arg(stepIdx)
+            .arg(totalSteps)
+            .arg(QString::fromStdString(stepName), statusText),
+        stepIdx, totalSteps);
+  };
+
+  workflowContext_.onLog = [this](const std::string &message) {
+    runModeWidget_->appendProductionLog(QString::fromStdString(message));
+    appendLog(QString::fromStdString(message));
+  };
+
+  workflowContext_.onBoardResult = [this](const int boardIdx, const bool ok, const std::string & /* summary */) {
+    runModeWidget_->recordBoardResult(ok);
+  };
+
+  if (mainStackedWidget_ != nullptr) {
+    mainStackedWidget_->setCurrentIndex(1);
+  }
+
+  if (switchToRunButton_ != nullptr) {
+    switchToRunButton_->setVisible(false);
+  }
+
+  if (switchToEditorButton_ != nullptr) {
+    switchToEditorButton_->setVisible(true);
+  }
+
+  runModeWidget_->appendProductionLog(QStringLiteral("已进入运行模式，等待启动。"));
+  appendLog(QStringLiteral("已切换到运行模式。左：锁定预览 | 右：生产数据看板"));
+  refreshStatusSummary();
+}
+
+void MainWindow::startWorkflowRun() {
+  if (workflowRunning_) {
+    return;
+  }
+
+  // Re-init context for a fresh run
+  workflowContext_.boardId = "BOARD-001";
+  workflowContext_.program = programManager_.mutableProgram();
+  workflowContext_.motionController = &virtualMotionController_;
+  workflowContext_.totalBoards = 10;
+  workflowContext_.boardIndex = 0;
+  workflowContext_.okCount = 0;
+  workflowContext_.ngCount = 0;
+
+  workflowStepIndex_ = 0;
+  workflowTotalSteps_ = static_cast<int>(processEngine_.stepCount());
+  workflowRunning_ = true;
+  workflowTimer_->start();
+
+  runModeWidget_->appendProductionLog(
+      QStringLiteral("工作流已启动，共 %1 块板待处理。").arg(workflowContext_.totalBoards));
+  appendLog(QStringLiteral("工作流已启动。"));
+}
+
+void MainWindow::stopWorkflowRun() {
+  workflowRunning_ = false;
+  workflowTimer_->stop();
+  processEngine_.requestCancel();
+
+  if (runModeWidget_ != nullptr) {
+    runModeWidget_->appendProductionLog(QStringLiteral("工作流已停止。"));
+  }
+
+  appendLog(QStringLiteral("工作流已停止。"));
+}
+
+void MainWindow::pauseWorkflowRun() {
+  workflowRunning_ = false;
+  workflowTimer_->stop();
+
+  if (runModeWidget_ != nullptr) {
+    runModeWidget_->appendProductionLog(QStringLiteral("工作流已暂停。"));
+  }
+
+  appendLog(QStringLiteral("工作流已暂停。"));
+}
+
+void MainWindow::advanceWorkflowStep() {
+  if (!workflowRunning_) {
+    return;
+  }
+
+  const int totalSteps = workflowTotalSteps_ > 0 ? workflowTotalSteps_
+                                                  : static_cast<int>(processEngine_.stepCount());
+
+  if (workflowStepIndex_ >= totalSteps) {
+    // Board completed
+    const auto result = processEngine_.runBoard(workflowContext_);
+    workflowContext_.finalDecisionOk = result.ok;
+
+    if (result.ok) {
+      ++workflowContext_.okCount;
+    } else {
+      ++workflowContext_.ngCount;
+    }
+
+    if (runModeWidget_ != nullptr) {
+      runModeWidget_->recordBoardResult(result.ok);
+    }
+
+    ++workflowContext_.boardIndex;
+
+    if (workflowContext_.boardIndex >= workflowContext_.totalBoards) {
+      workflowTimer_->stop();
+      workflowRunning_ = false;
+
+      if (runModeWidget_ != nullptr) {
+        runModeWidget_->appendProductionLog(
+            QStringLiteral("全部 %1 块板处理完成。OK=%2, NG=%3")
+                .arg(workflowContext_.totalBoards)
+                .arg(workflowContext_.okCount)
+                .arg(workflowContext_.ngCount));
+        runModeWidget_->updateStepProgress(QStringLiteral("全部完成"), totalSteps, totalSteps);
+      }
+
+      appendLog(QStringLiteral("工作流全部完成。"));
+      return;
+    }
+
+    workflowStepIndex_ = 0;
+
+    if (runModeWidget_ != nullptr) {
+      runModeWidget_->appendProductionLog(
+          QStringLiteral("开始处理板 #%1 / %2")
+              .arg(workflowContext_.boardIndex + 1)
+              .arg(workflowContext_.totalBoards));
+    }
+  }
+
+  ++workflowStepIndex_;
+
+  const QStringList stepNames = {
+      QStringLiteral("Mark 定位"),
+      QStringLiteral("缺陷检测"),
+      QStringLiteral("激光前检查"),
+      QStringLiteral("激光执行"),
+      QStringLiteral("激光后验证"),
+  };
+
+  const int stepNameIdx = (workflowStepIndex_ - 1) % stepNames.size();
+  const QString stepName = stepNameIdx < stepNames.size() ? stepNames[stepNameIdx] : QStringLiteral("未知步骤");
+
+  if (runModeWidget_ != nullptr) {
+    runModeWidget_->updateStepProgress(
+        QStringLiteral("板 #%1 | %2").arg(workflowContext_.boardIndex + 1).arg(stepName),
+        workflowStepIndex_, totalSteps);
+
+    runModeWidget_->appendProductionLog(
+        QStringLiteral("板 #%1 步骤 %2/%3: %4")
+            .arg(workflowContext_.boardIndex + 1)
+            .arg(workflowStepIndex_)
+            .arg(totalSteps)
+            .arg(stepName));
+  }
 }
 
 #endif

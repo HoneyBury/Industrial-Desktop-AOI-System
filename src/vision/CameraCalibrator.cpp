@@ -1,17 +1,24 @@
 #include "vision/CameraCalibrator.h"
 
+#include "calibration/CameraIntrinsicCalibrator.h"
+
 #include <fstream>
 #include <sstream>
 
 Result<CameraCalibrationData> CameraCalibrator::calibrateFromChessboard(
     const std::string &datasetDirectory) const {
+  calibration::CameraIntrinsicCalibrator calibrator;
+  const auto result = calibrator.calibrateFromChessboard(datasetDirectory);
+  if (!result) {
+    return Result<CameraCalibrationData>::failure(result.message);
+  }
+
   CameraCalibrationData data;
-  data.fx = 1000.0;
-  data.fy = 1000.0;
-  data.cx = 640.0;
-  data.cy = 360.0;
-  return Result<CameraCalibrationData>::success(
-      data, "Bootstrap calibration completed from " + datasetDirectory);
+  data.fx = result.value.fx;
+  data.fy = result.value.fy;
+  data.cx = result.value.cx;
+  data.cy = result.value.cy;
+  return Result<CameraCalibrationData>::success(data, result.message);
 }
 
 Result<void> CameraCalibrator::save(const CameraCalibrationData &data,
@@ -60,4 +67,3 @@ Result<CameraCalibrationData> CameraCalibrator::load(const std::string &filePath
 
   return Result<CameraCalibrationData>::success(data, "Calibration loaded.");
 }
-
