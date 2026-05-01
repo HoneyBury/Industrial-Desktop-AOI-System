@@ -46,6 +46,7 @@ venv/
 /data/*.db
 /data/*.sqlite
 /data/active_demo_program.json
+/data/template_cache/
 /logs/
 
 # Model and dataset outputs

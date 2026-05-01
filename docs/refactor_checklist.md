@@ -1,226 +1,72 @@
 # 项目重构清单
 
-本文档用于把当前项目从演示型 AOI 原型，逐步重构为符合真实工业镭雕 / AOI 设备流程的工程结构。
-
-重构依据：
-
-- `.ai/00_project_snapshot.md`
-- `.ai/01_architecture_and_modules.md`
-- `.ai/03_engineering_rules.md`
-- `.ai/04_current_progress_and_next_steps.md`
+本文档记录项目从演示型 AOI 原型逐步重构为真实工业镭雕/AOI 设备工程结构的全过程。
 
 ## 一、重构目标
-
-目标不是继续堆叠 UI 功能，而是建立一套能支撑真实工业流程的架构：
 
 1. 进板与粗定位
 2. 原点校正
 3. 激光偏移校正
-4. 双 Mark 定位
+4. 双 Mark / 多 Mark 定位
 5. ROI / AI 检测
 6. 坐标补偿
-7. 最终执行与 OK / NG 输出
+7. 激光执行与 Post-laser 验证
+8. 最终 OK / NG 输出
 
-## 二、整体改造阶段
+## 二、各阶段状态
 
-### Phase 1：配方模型与坐标系统
+### Phase 1：配方模型与坐标系统 ✅ 已完成
 
-目标：
+- `ProgramModel` 重构：分层标定数据、ROI 检测器配置、运行摘要、激光参数
+- `ProgramManager` 重构：JSON schema 升级，保存/加载工业字段
+- `coordinate` 模块独立：六层坐标链 (CameraPixel → Undistorted → ImagePhysicalMm → Product → Machine → Laser)
+- 涉及文件：`src/program/*`、`src/coordinate/*`、`config/default_program.json`
 
-- 重构 `ProgramModel`
-- 重构 `ProgramManager`
-- 建立独立 `coordinate` 模块
+### Phase 2：标定系统拆层 ✅ 已完成
 
-涉及文件：
+- `calibration` 模块：5 个独立标定器
+  - `CameraIntrinsicCalibrator`：真实 OpenCV `cv::calibrateCamera()` 棋盘格标定，支持自动回退
+  - `PixelScaleCalibrator`：物理距离/像素距离比值计算
+  - `OriginCalibrator`：像素偏移→mm→机械位姿修正
+  - `LaserOffsetCalibrator`：Camera-to-Laser 固定偏移
+  - `MarkReferenceCalibrator`：Mark 点→MarkReferenceRecord 转换
+- 标定对话框只负责采图和参数编辑，核心计算已迁移到 `calibration` 模块
 
-- `src/program/ProgramModel.h`
-- `src/program/ProgramManager.h`
-- `src/program/ProgramManager.cpp`
-- `src/coordinate/*`
-- `src/vision/CoordinateTransformer.h`
-- `src/vision/CoordinateTransformer.cpp`
-- `config/default_program.json`
-- `tests/unit/test_program_manager.cpp`
-- `tests/unit/test_coordinate_transformer.cpp`
-- `tests/unit/test_mark_offset.cpp`
+### Phase 3：Mark 定位与检测器体系 ✅ 已完成
 
-验收标准：
+- `alignment` 模块：
+  - `MarkAlignmentSolver`：单 Mark 平移 / 双 Mark 刚体 / 多 Mark 最小二乘 (Kabsch-Umeyama)
+  - `MarkDetector`：视觉检测包装器
+- `vision` 检测器体系：
+  - `MarkDetector`：真实 OpenCV 实现（自适应阈值轮廓 + HoughCircles 回退）
+  - `RoiDetector`：真实 OpenCV 实现（OTSU 阈值 + Canny 边缘）
+- `ai` 模块：
+  - `AiInferencer`：三层推理架构（OpenCV DNN ONNX → 传统CV统计特征 → 桩回退）
 
-- Program 配方包含分层标定数据
-- ROI 能绑定检测器配置
-- 坐标链至少支持：
-  - `CameraPixel`
-  - `UndistortedPixel`
-  - `ImagePhysicalMm`
-  - `Product`
-  - `Machine`
-  - `Laser`
-- `cmake --build --preset default --parallel` 通过
-- `ctest --preset default` 通过
+### Phase 4：流程引擎 ✅ 已完成
 
-### Phase 2：标定系统拆层
+- `process` 模块：8 步工业流程
+  - LoadBoard → RoughPosition → ImageCapture → MarkAlign → DefectInspect → PreLaser → LaserExecute → PostLaserVerify
+- `ProcessEngine`：支持 `runBoard()`、`runAllBoards()`、`requestCancel()`
+- `BoardWorkflow`：步骤编排，支持 `ContinueWorkflow`/`StopWorkflow` 失败策略
+- `laser` 模块：
+  - `ILaserController`：抽象接口 (`isReady`、`executeMark`、`emergencyStop`、`resetEmergencyStop`)
+  - `VirtualLaserController`：虚拟实现，带状态追踪
 
-目标：
+### Phase 5：工业 HMI 收口 ✅ 已完成
 
-- 建立 `calibration` 模块
-- 拆分相机标定、像素转 mm、原点、激光偏移、Mark 基准标定
+- Run mode 界面 (`RunModeWidget`)：左侧锁定预览、右侧生产看板 (OK/NG/板号/总数/生产日志)
+- AppMode 切换：Editor ↔ Run 通过 QStackedWidget
+- 工作流定时器驱动：600ms 间隔推进步骤
+- 所有对话框已接入 MainWindow：
+  - CameraCalibDialog、OriginCalibDialog、MarkOffsetDialog、MotionControlDialog
+  - SettingsDialog、ProgramEditDialog、LogWindow
+  - DataCollectDialog（数据集采集）、MarkEditDialog（完整 Mark 点编辑器）
 
-涉及文件：
+## 三、后续扩展方向
 
-- `src/calibration/*`
-- `src/ui/CameraCalibDialog.*`
-- `src/ui/OriginCalibDialog.*`
-- `src/ui/MarkOffsetDialog.*`
-- `src/ui/CalibrationCaptureWidget.*`
-- `src/program/ProgramModel.h`
-- `src/program/ProgramManager.cpp`
-
-验收标准：
-
-- 每类标定数据独立存储
-- 标定对话框只负责采图和参数编辑
-- 核心计算从 UI 迁移到 `calibration`
-
-### Phase 3：Mark 定位与检测器体系
-
-目标：
-
-- 建立 `alignment` 模块
-- 拆分 `vision` 检测器体系
-
-涉及文件：
-
-- `src/alignment/*`
-- `src/vision/MarkDetector.*`
-- `src/vision/RoiDetector.*`
-- `src/ai/AiInferencer.*`
-- `src/program/ProgramModel.h`
-
-验收标准：
-
-- 支持单 Mark 平移
-- 支持双 Mark 平移 + 旋转
-- ROI 绑定多种检测器
-- 输出统一检测结果结构
-
-### Phase 4：流程引擎
-
-目标：
-
-- 建立 `process` 模块
-- 将工业流程从 `MainWindow` 中抽离
-
-涉及文件：
-
-- `src/process/*`
-- `src/ui/MainWindow.*`
-- `src/motion/*`
-- `src/camera/*`
-- `src/program/*`
-
-验收标准：
-
-- 流程状态机独立存在
-- UI 仅发命令和显示状态
-- 支持：
-  - `LOAD_BOARD`
-  - `ROUGH_POSITION`
-  - `ORIGIN_CALIBRATION`
-  - `LASER_OFFSET_CALIBRATION`
-  - `FIND_MARK`
-  - `CALCULATE_ALIGNMENT`
-  - `APPLY_COMPENSATION`
-  - `INSPECT`
-  - `EXECUTE`
-  - `OUTPUT_RESULT`
-
-### Phase 5：工业 HMI 收口
-
-目标：
-
-- 将现有主界面收口成工业 HMI
-- 展示流程、坐标、补偿、检测和执行结果
-
-涉及文件：
-
-- `src/ui/MainWindow.*`
-- 各校正与编辑对话框
-
-验收标准：
-
-- 主界面显示坐标链数据
-- 显示 Mark / ROI / 偏移 / OK-NG
-- 显示流程状态和执行结果
-
-## 三、当前代码必须修改的重点
-
-### 1. `ProgramModel`
-
-当前问题：
-
-- 标定数据还是一个混合结构
-- 缺少激光偏移、Mark 基准、ROI 检测器配置
-- 运行摘要与长期工艺数据边界不清晰
-
-必须修改：
-
-- 引入分层标定结构
-- 引入 ROI 检测器配置结构
-- 引入运行摘要结构
-
-### 2. `ProgramManager`
-
-当前问题：
-
-- 配方 schema 还是 demo 结构
-- 手写正则解析脆弱
-- 没有围绕工业配方设计
-
-必须修改：
-
-- 升级默认配方 schema
-- 保存 / 加载新的工业字段
-- 保持对现有 UI 的过渡兼容
-
-### 3. `CoordinateTransformer`
-
-当前问题：
-
-- 只支持像素到毫米和简单姿态计算
-- 没有显式坐标层级
-
-必须修改：
-
-- 拆出独立 `src/coordinate`
-- 建立六层坐标系统
-- 支持刚体变换与链式转换
-
-### 4. `MainWindow`
-
-当前问题：
-
-- 承担了过多流程和业务逻辑
-- 校正、模板、补偿都直接写在 UI 里
-
-后续必须修改：
-
-- 逐步改成 HMI 层
-- 把流程、标定、对位、转换迁走
-
-## 四、当前推荐实施顺序
-
-1. 完成 `ProgramModel / ProgramManager` 重构
-2. 完成 `coordinate` 模块独立
-3. 再做 `calibration`
-4. 再做 `alignment`
-5. 最后落 `process`
-
-## 五、本轮落地范围
-
-本轮要求完成：
-
-1. 新增本清单文档
-2. 完成 Phase 1 的前两项：
-   - `ProgramModel / ProgramManager`
-   - `coordinate` 模块
-3. 同步更新默认配置与单元测试
+- 连接真实激光硬件（替换 VirtualLaserController）
+- 连接真实运动控制卡（替换 VirtualMotionController）
+- 训练并部署真实 ONNX 缺陷检测模型
+- MES/SPC 系统对接
+- 多相机支持
