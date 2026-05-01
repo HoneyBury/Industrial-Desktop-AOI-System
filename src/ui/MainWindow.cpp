@@ -6,7 +6,9 @@
 #include "ui/CadGraphicsView.h"
 #include "ui/CadRulerWidget.h"
 #include "ui/CameraCalibDialog.h"
+#include "ui/DataCollectDialog.h"
 #include "ui/LogWindow.h"
+#include "ui/MarkEditDialog.h"
 #include "ui/MarkOffsetDialog.h"
 #include "ui/MotionControlDialog.h"
 #include "ui/OriginCalibDialog.h"
@@ -459,6 +461,10 @@ void MainWindow::buildMenus() {
   auto *viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
   auto *openLogAction = viewMenu->addAction(QStringLiteral("运行日志"));
 
+  auto *toolsMenu = menuBar()->addMenu(QStringLiteral("工具"));
+  auto *dataCollectAction = toolsMenu->addAction(QStringLiteral("数据集采集"));
+  auto *markEditAction = toolsMenu->addAction(QStringLiteral("Mark 点编辑器"));
+
   connect(newProgramAction, &QAction::triggered, this, &MainWindow::createDefaultProgram);
   connect(openProgramAction, &QAction::triggered, this, &MainWindow::openProgram);
   connect(saveProgramAction, &QAction::triggered, this, &MainWindow::saveCurrentProgram);
@@ -471,6 +477,8 @@ void MainWindow::buildMenus() {
   connect(markOffsetAction, &QAction::triggered, this, &MainWindow::openMarkOffsetCalibration);
   connect(originCalibAction, &QAction::triggered, this, &MainWindow::openOriginCalibration);
   connect(openLogAction, &QAction::triggered, this, &MainWindow::openLogWindow);
+  connect(dataCollectAction, &QAction::triggered, this, &MainWindow::openDataCollect);
+  connect(markEditAction, &QAction::triggered, this, &MainWindow::openMarkEditDialog);
 
   auto *toolBar = addToolBar(QStringLiteral("主工具栏"));
   toolBar->setMovable(false);
@@ -1569,6 +1577,75 @@ void MainWindow::openLogWindow() {
   } else {
     logWindow_->raise();
     logWindow_->activateWindow();
+  }
+}
+
+void MainWindow::openDataCollect() {
+  if (dataCollectDialog_ == nullptr) {
+    dataCollectDialog_ = new DataCollectDialog(this);
+    dataCollectDialog_->setCaptureDirectory(projectRootPath() + QStringLiteral("/data/template_cache"));
+
+    connect(dataCollectDialog_, &DataCollectDialog::captureRequested, this, [this]() {
+      // Capture current camera frame and add to dataset.
+      if (!lastCameraFrameImage_.isNull()) {
+        const QString dir = projectRootPath() + QStringLiteral("/data/template_cache");
+        QDir().mkpath(dir);
+        const QString path = dir + QStringLiteral("/capture_") +
+                             QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")) +
+                             QStringLiteral(".png");
+        lastCameraFrameImage_.save(path, "PNG");
+        dataCollectDialog_->addCapturedImage(path, QStringLiteral("captured"));
+        appendLog(QStringLiteral("Dataset image saved: ") + path);
+      } else {
+        appendLog(QStringLiteral("No camera frame available for dataset capture."));
+      }
+    });
+
+    connect(dataCollectDialog_, &DataCollectDialog::exportRequested, this,
+            [this](const QString &exportPath) {
+              appendLog(QStringLiteral("Dataset export requested to: ") + exportPath);
+            });
+  }
+
+  if (!dataCollectDialog_->isVisible()) {
+    dataCollectDialog_->show();
+  } else {
+    dataCollectDialog_->raise();
+    dataCollectDialog_->activateWindow();
+  }
+}
+
+void MainWindow::openMarkEditDialog() {
+  if (markEditDialog_ == nullptr) {
+    markEditDialog_ = new MarkEditDialog(this);
+    connect(markEditDialog_, &QDialog::accepted, this, [this]() {
+      const MarkPoint mark = markEditDialog_->markPoint();
+      updateProgram([&mark](ProgramModel &program) {
+        program.marks.push_back(mark);
+
+        // Update compatibility fields.
+        if (!mark.name.empty()) {
+          program.markReferences.push_back(MarkReferenceRecord {
+              mark.name,
+              PixelPoint {mark.x, mark.y},
+              MillimeterPoint {mark.x * program.pixelScaleCalibration.pixelToMillimeterX,
+                               mark.y * program.pixelScaleCalibration.pixelToMillimeterY},
+              mark.enabled,
+          });
+        }
+      });
+
+      appendLog(QStringLiteral("Mark 点已添加: ") + QString::fromStdString(mark.name));
+      refreshProgramWidgets();
+      refreshWorkbenchScene();
+    });
+  }
+
+  if (!markEditDialog_->isVisible()) {
+    markEditDialog_->show();
+  } else {
+    markEditDialog_->raise();
+    markEditDialog_->activateWindow();
   }
 }
 

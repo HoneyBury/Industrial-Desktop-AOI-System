@@ -12,6 +12,7 @@ namespace alignment {
 enum class AlignmentMode {
   SingleMarkTranslation,
   DualMarkRigid,
+  MultiMarkLeastSquares,
 };
 
 struct MarkAlignmentInput {
@@ -25,12 +26,21 @@ struct MarkAlignmentResult {
   PixelPoint pixelOffset;
   MillimeterPoint millimeterOffset;
   double rotationDegrees {0.0};
+  double residualRmsPx {0.0};
   RigidTransform2D productCompensation;
 };
 
 class MarkAlignmentSolver {
 public:
   Result<MarkAlignmentResult> solve(const MarkAlignmentInput &input) const;
+
+private:
+  Result<MarkAlignmentResult> solveSingle(const MarkAlignmentInput &input,
+                                          const CoordinateTransformer &transformer) const;
+  Result<MarkAlignmentResult> solveDual(const MarkAlignmentInput &input,
+                                        const CoordinateTransformer &transformer) const;
+  Result<MarkAlignmentResult> solveMulti(const MarkAlignmentInput &input,
+                                         const CoordinateTransformer &transformer) const;
 };
 
 } // namespace alignment

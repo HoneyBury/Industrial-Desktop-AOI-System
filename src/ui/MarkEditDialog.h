@@ -6,7 +6,9 @@
 
 #include <QDialog>
 
+class QComboBox;
 class QDoubleSpinBox;
+class QLineEdit;
 
 class MarkEditDialog final : public QDialog {
   Q_OBJECT
@@ -14,12 +16,20 @@ class MarkEditDialog final : public QDialog {
 public:
   explicit MarkEditDialog(QWidget *parent = nullptr);
 
+  void setMarkPoint(const MarkPoint &mark);
   [[nodiscard]] MarkPoint markPoint() const;
 
 private:
+  QLineEdit *nameEdit_ {nullptr};
   QDoubleSpinBox *xSpinBox_ {nullptr};
   QDoubleSpinBox *ySpinBox_ {nullptr};
+  QDoubleSpinBox *widthSpinBox_ {nullptr};
+  QDoubleSpinBox *heightSpinBox_ {nullptr};
+  QDoubleSpinBox *rotationSpinBox_ {nullptr};
   QDoubleSpinBox *scoreSpinBox_ {nullptr};
+  QDoubleSpinBox *minScoreSpinBox_ {nullptr};
+  QComboBox *shapeComboBox_ {nullptr};
+  QComboBox *algorithmComboBox_ {nullptr};
 };
 
 #endif

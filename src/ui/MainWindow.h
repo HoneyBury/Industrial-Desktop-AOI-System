@@ -19,7 +19,9 @@
 
 class CadGraphicsView;
 class CadRulerWidget;
+class DataCollectDialog;
 class LogWindow;
+class MarkEditDialog;
 class MotionControlDialog;
 class RunModeWidget;
 class SettingsDialog;
@@ -89,6 +91,8 @@ private:
   void startCameraPreview();
   void stopCameraPreview();
   void updateCameraFrame();
+  void openDataCollect();
+  void openMarkEditDialog();
   void openMarkOffsetCalibration();
   void openOriginCalibration();
   void toggleCodeCameraView();
@@ -143,6 +147,8 @@ private:
   ProgramManager programManager_;
   ProcessEngine processEngine_;
   AppSettings appSettings_;
+  DataCollectDialog *dataCollectDialog_ {nullptr};
+  MarkEditDialog *markEditDialog_ {nullptr};
   MotionControlDialog *motionControlDialog_ {nullptr};
   LogWindow *logWindow_ {nullptr};
   SettingsDialog *settingsDialog_ {nullptr};

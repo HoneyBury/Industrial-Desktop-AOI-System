@@ -2,6 +2,7 @@
 
 #include "ai/AiInferencer.h"
 
+#include <fstream>
 #include <sstream>
 
 DefectInspectStep::DefectInspectStep(std::string stepId) : stepId_(std::move(stepId)) {}
@@ -11,7 +12,11 @@ std::string DefectInspectStep::id() const { return stepId_; }
 ProcessStepType DefectInspectStep::type() const { return ProcessStepType::DefectInspect; }
 
 bool DefectInspectStep::isEnabled(const WorkflowContext &context) const {
-  return context.program != nullptr && !context.program->aiModelPath.empty() && !context.currentImagePath.empty();
+  if (context.program == nullptr || context.currentImagePath.empty()) {
+    return false;
+  }
+  std::ifstream test(context.currentImagePath);
+  return test.good();
 }
 
 StepFailurePolicy DefectInspectStep::failurePolicy() const { return StepFailurePolicy::ContinueWorkflow; }
