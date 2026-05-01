@@ -77,12 +77,6 @@ TEST(ProgramManagerTest, PreservesNestedCalibrationAndRuntimeSummaryFields) {
   customized.laserOffsetCalibration.cameraToLaserDyMm = -0.37;
   customized.runtimeSummary.templateCachePath = "/tmp/template \"cache\".png";
   customized.runtimeSummary.latestTemplateMatchSummary = "match\nsummary";
-  customized.runtimeSummary.hasOriginCalibration = true;
-  customized.runtimeSummary.originCorrectedPose = MechanicalPose {8.1, 9.2, 10.3, 11.4};
-  customized.runtimeSummary.hasMarkCalibration = true;
-  customized.runtimeSummary.markCalibrationOffsetXmm = 0.11;
-  customized.runtimeSummary.markCalibrationOffsetYmm = -0.22;
-  customized.runtimeSummary.markCalibrationRotationDegrees = 1.5;
   customized.boardDefinition = BoardDefinition {520.0, 410.0, 55.0};
   customized.scanRecipe = ScanRecipe {44.0, 33.0, ScanOrder::TopToBottom, true};
   customized.runtimeSummary.wholeBoardImagePath = "/tmp/whole_board.png";
@@ -110,12 +104,10 @@ TEST(ProgramManagerTest, PreservesNestedCalibrationAndRuntimeSummaryFields) {
   EXPECT_NEAR(loadResult.value.originCalibration.machineReferencePose.r, 7.8, 1e-9);
   EXPECT_TRUE(loadResult.value.laserOffsetCalibration.calibrated);
   EXPECT_NEAR(loadResult.value.laserOffsetCalibration.cameraToLaserDxMm, 0.42, 1e-9);
-  EXPECT_NEAR(loadResult.value.runtimeSummary.originCorrectedPose.z, 10.3, 1e-9);
+  EXPECT_NEAR(loadResult.value.originCalibration.machineReferencePose.z, 5.6, 1e-9);
   EXPECT_EQ(loadResult.value.runtimeSummary.templateCachePath, customized.runtimeSummary.templateCachePath);
   EXPECT_EQ(loadResult.value.runtimeSummary.latestTemplateMatchSummary,
             customized.runtimeSummary.latestTemplateMatchSummary);
-  EXPECT_TRUE(loadResult.value.runtimeSummary.hasMarkCalibration);
-  EXPECT_NEAR(loadResult.value.runtimeSummary.markCalibrationRotationDegrees, 1.5, 1e-9);
   EXPECT_NEAR(loadResult.value.boardDefinition.boardLengthMm, 520.0, 1e-9);
   EXPECT_NEAR(loadResult.value.boardDefinition.railWidthMm, 55.0, 1e-9);
   EXPECT_EQ(loadResult.value.scanRecipe.scanOrder, ScanOrder::TopToBottom);

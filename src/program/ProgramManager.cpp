@@ -574,14 +574,6 @@ std::vector<LaserPointTask> parseLaserPointTasks(const json::Value *value) {
   return tasks;
 }
 
-void syncRuntimeSummaryFromCalibration(ProgramModel &model) {
-  if (model.laserOffsetCalibration.calibrated) {
-    model.runtimeSummary.hasLaserOffsetCalibration = true;
-    model.runtimeSummary.laserOffsetDxMm = model.laserOffsetCalibration.cameraToLaserDxMm;
-    model.runtimeSummary.laserOffsetDyMm = model.laserOffsetCalibration.cameraToLaserDyMm;
-  }
-}
-
 void syncCanonicalCalibration(ProgramModel &model) {
   if (!model.cameraIntrinsicCalibration.calibrated &&
       model.cameraIntrinsicCalibration.fx == 0.0 &&
@@ -668,7 +660,6 @@ void deriveLaserPointTasksFromRois(ProgramModel &model) {
 
 void syncProgramModel(ProgramModel &model) {
   syncCanonicalCalibration(model);
-  syncRuntimeSummaryFromCalibration(model);
   deriveMarkReferencesFromMarks(model);
   deriveRoiDetectorConfigsFromRois(model);
   deriveLaserPointTasksFromRois(model);
@@ -857,21 +848,23 @@ json::Value serializeProgram(const ProgramModel &program) {
       {"rois", json::Value::array(std::move(rois))},
       {"runtimeSummary",
        json::Value::object({
-           {"hasMarkCalibration", json::Value::boolean(serializableProgram.runtimeSummary.hasMarkCalibration)},
-           {"hasOriginCalibration", json::Value::boolean(serializableProgram.runtimeSummary.hasOriginCalibration)},
+           {"hasMarkCalibration", json::Value::boolean(false)},
+           {"hasOriginCalibration",
+            json::Value::boolean(serializableProgram.originCalibration.calibrated)},
            {"lastBoardScanSummary", json::Value::string(serializableProgram.runtimeSummary.lastBoardScanSummary)},
            {"latestTemplateMatchSummary",
             json::Value::string(serializableProgram.runtimeSummary.latestTemplateMatchSummary)},
-           {"markCalibrationOffsetXmm",
-            json::Value::number(serializableProgram.runtimeSummary.markCalibrationOffsetXmm)},
-           {"markCalibrationOffsetYmm",
-            json::Value::number(serializableProgram.runtimeSummary.markCalibrationOffsetYmm)},
-           {"markCalibrationRotationDegrees",
-            json::Value::number(serializableProgram.runtimeSummary.markCalibrationRotationDegrees)},
-           {"originCorrectedR", json::Value::number(serializableProgram.runtimeSummary.originCorrectedPose.r)},
-           {"originCorrectedX", json::Value::number(serializableProgram.runtimeSummary.originCorrectedPose.x)},
-           {"originCorrectedY", json::Value::number(serializableProgram.runtimeSummary.originCorrectedPose.y)},
-           {"originCorrectedZ", json::Value::number(serializableProgram.runtimeSummary.originCorrectedPose.z)},
+           {"markCalibrationOffsetXmm", json::Value::number(0.0)},
+           {"markCalibrationOffsetYmm", json::Value::number(0.0)},
+           {"markCalibrationRotationDegrees", json::Value::number(0.0)},
+           {"originCorrectedR",
+            json::Value::number(serializableProgram.originCalibration.machineReferencePose.r)},
+           {"originCorrectedX",
+            json::Value::number(serializableProgram.originCalibration.machineReferencePose.x)},
+           {"originCorrectedY",
+            json::Value::number(serializableProgram.originCalibration.machineReferencePose.y)},
+           {"originCorrectedZ",
+            json::Value::number(serializableProgram.originCalibration.machineReferencePose.z)},
            {"scanTileColumns", json::Value::number(serializableProgram.runtimeSummary.scanTileColumns)},
            {"scanTileRows", json::Value::number(serializableProgram.runtimeSummary.scanTileRows)},
            {"templateCachePath", json::Value::string(serializableProgram.runtimeSummary.templateCachePath)},
@@ -974,24 +967,23 @@ void deserializeRuntimeSummary(ProgramModel &model, const json::Value *value) {
       stringOrDefault(objectField(*value, "templateCachePath"), model.runtimeSummary.templateCachePath);
   model.runtimeSummary.latestTemplateMatchSummary = stringOrDefault(
       objectField(*value, "latestTemplateMatchSummary"), model.runtimeSummary.latestTemplateMatchSummary);
-  model.runtimeSummary.hasMarkCalibration =
-      boolOrDefault(objectField(*value, "hasMarkCalibration"), model.runtimeSummary.hasMarkCalibration);
-  model.runtimeSummary.markCalibrationOffsetXmm = doubleOrDefault(
-      objectField(*value, "markCalibrationOffsetXmm"), model.runtimeSummary.markCalibrationOffsetXmm);
-  model.runtimeSummary.markCalibrationOffsetYmm = doubleOrDefault(
-      objectField(*value, "markCalibrationOffsetYmm"), model.runtimeSummary.markCalibrationOffsetYmm);
-  model.runtimeSummary.markCalibrationRotationDegrees = doubleOrDefault(
-      objectField(*value, "markCalibrationRotationDegrees"), model.runtimeSummary.markCalibrationRotationDegrees);
-  model.runtimeSummary.hasOriginCalibration =
-      boolOrDefault(objectField(*value, "hasOriginCalibration"), model.runtimeSummary.hasOriginCalibration);
-  model.runtimeSummary.originCorrectedPose.x =
-      doubleOrDefault(objectField(*value, "originCorrectedX"), model.runtimeSummary.originCorrectedPose.x);
-  model.runtimeSummary.originCorrectedPose.y =
-      doubleOrDefault(objectField(*value, "originCorrectedY"), model.runtimeSummary.originCorrectedPose.y);
-  model.runtimeSummary.originCorrectedPose.z =
-      doubleOrDefault(objectField(*value, "originCorrectedZ"), model.runtimeSummary.originCorrectedPose.z);
-  model.runtimeSummary.originCorrectedPose.r =
-      doubleOrDefault(objectField(*value, "originCorrectedR"), model.runtimeSummary.originCorrectedPose.r);
+
+  // Legacy mirror fields from ProgramRuntimeSummary → redirect into canonical structs
+  if (!model.originCalibration.calibrated) {
+    const bool oldHasOrigin = boolOrDefault(objectField(*value, "hasOriginCalibration"), false);
+    if (oldHasOrigin) {
+      model.originCalibration.calibrated = true;
+      model.originCalibration.machineReferencePose.x =
+          doubleOrDefault(objectField(*value, "originCorrectedX"), model.originCalibration.machineReferencePose.x);
+      model.originCalibration.machineReferencePose.y =
+          doubleOrDefault(objectField(*value, "originCorrectedY"), model.originCalibration.machineReferencePose.y);
+      model.originCalibration.machineReferencePose.z =
+          doubleOrDefault(objectField(*value, "originCorrectedZ"), model.originCalibration.machineReferencePose.z);
+      model.originCalibration.machineReferencePose.r =
+          doubleOrDefault(objectField(*value, "originCorrectedR"), model.originCalibration.machineReferencePose.r);
+    }
+  }
+
   model.runtimeSummary.wholeBoardImagePath =
       stringOrDefault(objectField(*value, "wholeBoardImagePath"), model.runtimeSummary.wholeBoardImagePath);
   model.runtimeSummary.scanTileRows =

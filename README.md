@@ -30,16 +30,19 @@
 
 ## 系统架构
 
-项目采用分层模块化结构，便于后续从“可展示 Demo”平滑过渡到“可继续演进的工业软件原型”：
+项目采用分层模块化结构，便于后续从”可展示 Demo”平滑过渡到”可继续演进的工业软件原型”：
 
 - `camera`：相机抽象层，当前提供 `ICamera`、`UsbCamera` 与 `VirtualCameraDevice`
 - `vision`：标定、Mark 检测、ROI 检测、读码、坐标转换
-- `motion`：运动控制抽象、虚拟 X/Y/Z/R 轴与统一虚拟运控门面
+- `calibration`：校正模块体系（`OriginCalibrationModule`、`LaserOffsetCalibrationModule`、`PixelToMachineCalibrationModule` 等），独立无 UI 依赖
+- `coordinate`：6 层工业坐标链（Pixel→UndistortedPixel→ImagePhysicalMm→Product→Machine→Laser），含完全变换链路
+- `motion`：运动控制抽象、虚拟 X/Y/Z/R 轴与统一虚拟运控门面 `VirtualMotionSystem`
 - `transport`：进板/出板/挡板运输状态机
+- `alignment`：Mark 刚体变换求解、多模板匹配检测
 - `program`：检测程序定义、保存与加载
 - `database`：SQLite 数据管理入口
 - `ai`：ONNX 推理接口与 AI 检测结果封装
-- `ui`：Qt 主界面与功能对话框
+- `ui`：Qt 主界面与功能对话框，包含可复用的 `CameraPreviewWidget`、`CalibrationJogPanel` 等校正交互组件
 - `tests`：单元测试与集成测试
 - `docs`：架构、流程、标定、AI、CI/CD 等专业文档
 
@@ -47,9 +50,11 @@
 
 ## 功能模块
 
-- 虚拟相机：基于 `demoimage/board.png` 按当前机械坐标实时裁切 FOV，模拟“相机随平台运动观察整板”的效果
+- 虚拟相机：基于 `demoimage/board.png` 按当前机械坐标实时裁切 FOV，模拟”相机随平台运动观察整板”的效果
 - 视觉标定：支持棋盘格标定、像素与毫米映射、坐标转换
-- Mark 对位：支持双 Mark 角度偏移计算，并已接入虚拟运控相机联动
+- 校正模块体系：`OriginCalibrationModule`（参考位→逻辑原点换算）、`LaserOffsetCalibrationModule`（Camera TCP→Laser TCP 偏移补偿）、`PixelToMachineCalibrationModule`（像素比例管理与 FOV 推算）
+- 坐标变换链路：`CoordinateTransformer` 提供完整的 6 层坐标链与 `machineToProduct`、`applyLaserOffset`、`imageClickToMoveDelta`、`applyMarkTransform` 等工业坐标方法
+- Mark 对位：支持单 Mark 平移、双 Mark 刚体对齐、多 Mark 最小二乘拟合
 - 原点/运输语义：挡板位于工位右下侧，界面校正以挡板参考角点操作，内部换算为整板逻辑原点
 - ROI 检测：预留阈值、轮廓、模板检测扩展点
 - 运动控制：支持回零、绝对移动、相对移动、急停、进板/出板/挡板联动
@@ -113,22 +118,18 @@ cmake --build --preset release --parallel
 
 ## 测试方式
 
-当前已经初始化的测试文件包括：
+当前已包含 `74` 项测试，全部通过，覆盖文件包括：
 
-- `test_coordinate_transformer.cpp`
-- `test_virtual_motion_controller.cpp`
-- `test_virtual_camera_device.cpp`
-- `test_mark_offset.cpp`
-- `test_inspection_pipeline.cpp`
-
-当前测试覆盖重点包括：
-
-- 像素偏移到毫米的转换
-- 虚拟轴绝对移动
-- 虚拟轴相对移动
-- 虚拟整板相机随机械坐标切换不同 FOV
-- 双 Mark 点角度计算
-- AOI 主流程的最小集成验证
+- `test_calibration_modules.cpp` — OriginCalibrationModule、LaserOffsetCalibrationModule、PixelToMachineCalibrationModule、像素比例、Mark 参考、棋盘格标定等完整校正模块测试
+- `test_coordinate_transformer.cpp` — 像素到毫米、产品到机械、整像素到激光链、刚体变换、machineToProduct 逆变换、applyLaserOffset/applyMarkTransform/imageClickToMoveDelta
+- `test_mark_alignment.cpp` — 单 Mark 平移、双 Mark 刚体、多 Mark 最小二乘拟合
+- `test_virtual_motion_controller.cpp` — 虚拟轴绝对/相对移动、回零、急停
+- `test_virtual_camera_device.cpp` — 整板相机随机械坐标切换 FOV
+- `test_mark_offset.cpp` — 双 Mark 点角度计算
+- `test_laser_and_steps.cpp` — 激光控制、运输、流程步骤
+- `test_process_engine.cpp` — 流程引擎与 8 步骤队列
+- `test_program_manager.cpp` — 程序创建、保存、加载、校正字段持久化
+- `test_inspection_pipeline.cpp` — AOI 主流程的最小集成验证
 
 ## CI/CD
 
@@ -170,6 +171,7 @@ cmake --build --preset release --parallel
 - `v0.3`：程序编辑器、Mark 对位、ROI 检测
 - `v0.4`：AI 数据采集、YOLO 训练、ONNX 推理接入
 - `v0.5`：检测记录存储、结果看板、Demo 优化
+- `v0.6`（当前）：校正模块体系重构 — OriginCalibrationModule、LaserOffsetCalibrationModule、PixelToMachineCalibrationModule、CoordinateTransformer 工业坐标链补全
 
 ## 开发流程
 

@@ -110,15 +110,6 @@ struct LaserPointTask {
 struct ProgramRuntimeSummary {
   std::string templateCachePath;
   std::string latestTemplateMatchSummary;
-  bool hasMarkCalibration {false};
-  double markCalibrationOffsetXmm {0.0};
-  double markCalibrationOffsetYmm {0.0};
-  double markCalibrationRotationDegrees {0.0};
-  bool hasOriginCalibration {false};
-  MechanicalPose originCorrectedPose;
-  bool hasLaserOffsetCalibration {false};
-  double laserOffsetDxMm {0.0};
-  double laserOffsetDyMm {0.0};
   std::string wholeBoardImagePath;
   int scanTileRows {0};
   int scanTileColumns {0};

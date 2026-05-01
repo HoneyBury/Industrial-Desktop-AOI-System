@@ -112,6 +112,53 @@ double CoordinateTransformer::computeMarkRotationDegrees(
   return measuredAngle - referenceAngle;
 }
 
+MillimeterPoint CoordinateTransformer::machineToProduct(
+    const MechanicalPose &machinePose, const MechanicalPose &originPose) const {
+  // Inverse of productToMechanical:
+  //   productToMechanical: product → machinePose
+  //     relativeMachine = rotate(product, rotDeg) + {tx, ty}
+  //     pose.x += relativeMachine.x; pose.y += relativeMachine.y;
+  //   machineToProduct: machinePose → product
+  //     relativeMachine = {machinePose.x - originPose.x, machinePose.y - originPose.y}
+  //     product = rotate(relativeMachine - {tx, ty}, -rotDeg)
+  const double relativeX = machinePose.x - originPose.x;
+  const double relativeY = machinePose.y - originPose.y;
+  const double tx = chain_.productToMachine.translationX;
+  const double ty = chain_.productToMachine.translationY;
+  return rotatePoint({relativeX - tx, relativeY - ty}, -chain_.productToMachine.rotationDegrees);
+}
+
+MillimeterPoint CoordinateTransformer::applyMarkTransform(
+    const MillimeterPoint &productPoint, const RigidTransform2D &markTransform) {
+  return applyRigidTransform(productPoint, markTransform);
+}
+
+MechanicalPose CoordinateTransformer::applyLaserOffset(
+    const MechanicalPose &machinePose, const MillimeterPoint &laserOffsetMm) const {
+  MechanicalPose result = machinePose;
+  result.x += laserOffsetMm.x;
+  result.y += laserOffsetMm.y;
+  return result;
+}
+
+MillimeterPoint CoordinateTransformer::imageClickToMoveDelta(
+    const PixelPoint &clickPixel, const PixelPoint &imageCenter) const {
+  const PixelPoint pixelOffset{clickPixel.x - imageCenter.x, clickPixel.y - imageCenter.y};
+  return pixelToMillimeter(pixelOffset);
+}
+
+MechanicalPose CoordinateTransformer::targetProductPointToCameraPosition(
+    const MillimeterPoint &productPoint, const MechanicalPose &originPose) const {
+  return productToMechanical(productPoint, originPose);
+}
+
+MechanicalPose CoordinateTransformer::targetProductPointToLaserPosition(
+    const MillimeterPoint &productPoint, const MechanicalPose &originPose,
+    const MillimeterPoint &laserOffsetMm) const {
+  const MechanicalPose cameraPose = productToMechanical(productPoint, originPose);
+  return applyLaserOffset(cameraPose, laserOffsetMm);
+}
+
 MillimeterPoint CoordinateTransformer::applyRigidTransform(const MillimeterPoint &point,
                                                            const RigidTransform2D &transform) {
   const MillimeterPoint rotatedPoint = rotatePoint(point, transform.rotationDegrees);

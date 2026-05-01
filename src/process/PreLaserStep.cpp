@@ -10,9 +10,6 @@ namespace {
 
 MechanicalPose laserPreparationOriginPose(const WorkflowContext &context) {
   if (context.program != nullptr) {
-    if (context.program->runtimeSummary.hasOriginCalibration) {
-      return context.program->runtimeSummary.originCorrectedPose;
-    }
     if (context.program->originCalibration.calibrated) {
       return context.program->originCalibration.machineReferencePose;
     }

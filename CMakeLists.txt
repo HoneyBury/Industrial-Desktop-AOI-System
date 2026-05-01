@@ -80,6 +80,9 @@ add_library(aoi_core
   src/calibration/LaserOffsetCalibrator.cpp
   src/calibration/MarkReferenceCalibrator.cpp
   src/calibration/OriginCalibrator.cpp
+  src/calibration/OriginCalibrationModule.cpp
+  src/calibration/LaserOffsetCalibrationModule.cpp
+  src/calibration/PixelToMachineCalibrationModule.cpp
   src/calibration/PixelScaleCalibrator.cpp
   src/coordinate/CoordinateTransformer.cpp
   src/alignment/MarkAlignmentSolver.cpp
@@ -146,6 +149,10 @@ if(AOI_HAS_QT)
     src/ui/CadGraphicsView.h
     src/ui/CalibrationCaptureWidget.cpp
     src/ui/CalibrationCaptureWidget.h
+    src/ui/CalibrationJogPanel.cpp
+    src/ui/CalibrationJogPanel.h
+    src/ui/CameraPreviewWidget.cpp
+    src/ui/CameraPreviewWidget.h
     src/ui/LaserOffsetCalibDialog.cpp
     src/ui/LaserOffsetCalibDialog.h
     src/ui/CadRulerWidget.cpp
@@ -166,8 +173,6 @@ if(AOI_HAS_QT)
     src/ui/MotionControlDialog.h
     src/ui/OriginCalibDialog.cpp
     src/ui/OriginCalibDialog.h
-    src/ui/MarkOffsetDialog.cpp
-    src/ui/MarkOffsetDialog.h
     src/ui/DataCollectDialog.cpp
     src/ui/DataCollectDialog.h
     src/ui/ProductionHistoryDialog.cpp

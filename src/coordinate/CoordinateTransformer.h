@@ -86,6 +86,33 @@ public:
       const std::pair<PixelPoint, PixelPoint> &referenceMarkPair,
       const std::pair<PixelPoint, PixelPoint> &measuredMarkPair) const;
 
+  // ── 工业坐标链新增方法（docs/industrial_calibration_and_coordinate_plan.md §5.2） ──
+
+  /// 机械坐标 → 产品坐标（productToMechanical 的逆变换）
+  [[nodiscard]] MillimeterPoint machineToProduct(const MechanicalPose &machinePose,
+                                                  const MechanicalPose &originPose) const;
+
+  /// 对产品点应用 Mark 刚体变换
+  [[nodiscard]] static MillimeterPoint applyMarkTransform(const MillimeterPoint &productPoint,
+                                                          const RigidTransform2D &markTransform);
+
+  /// 对机械坐标应用激光偏移
+  [[nodiscard]] MechanicalPose applyLaserOffset(const MechanicalPose &machinePose,
+                                                 const MillimeterPoint &laserOffsetMm) const;
+
+  /// 计算像素点击 → 相机移动量 (mm)
+  [[nodiscard]] MillimeterPoint imageClickToMoveDelta(const PixelPoint &clickPixel,
+                                                       const PixelPoint &imageCenter) const;
+
+  /// 产品点 → 相机应当移动到的机械目标位姿
+  [[nodiscard]] MechanicalPose targetProductPointToCameraPosition(
+      const MillimeterPoint &productPoint, const MechanicalPose &originPose) const;
+
+  /// 产品点 → 激光应当移动到的机械目标位姿（含偏移补偿）
+  [[nodiscard]] MechanicalPose targetProductPointToLaserPosition(
+      const MillimeterPoint &productPoint, const MechanicalPose &originPose,
+      const MillimeterPoint &laserOffsetMm) const;
+
   [[nodiscard]] static MillimeterPoint applyRigidTransform(const MillimeterPoint &point,
                                                            const RigidTransform2D &transform);
 

@@ -107,7 +107,6 @@ private:
   void updateCameraFrame();
   void openDataCollect();
   void openMarkEditDialog();
-  void openMarkOffsetCalibration();
   void openOriginCalibration();
   void openLaserOffsetCalibration();
   void openSpcDashboard();
@@ -166,6 +165,10 @@ private:
   [[nodiscard]] QString currentMarkShapeText() const;
   [[nodiscard]] QString currentMarkAlgorithmText() const;
   [[nodiscard]] QString currentRoiShapeText() const;
+
+  // Shared dialog building blocks (reduce glue code)
+  void ensureCameraPreview();
+  [[nodiscard]] std::function<void(double dx, double dy)> makeJogProvider();
 
   Ui::MainWindow *ui_ {nullptr};
   VirtualCameraDevice virtualCamera_;

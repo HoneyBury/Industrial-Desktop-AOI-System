@@ -14,7 +14,8 @@
 #include "ui/DataCollectDialog.h"
 #include "ui/LogWindow.h"
 #include "ui/MarkEditDialog.h"
-#include "ui/MarkOffsetDialog.h"
+#include "ui/CalibrationJogPanel.h"
+#include "ui/CameraPreviewWidget.h"
 #include "ui/MotionControlDialog.h"
 #include "ui/NewProgramDialog.h"
 #include "ui/OriginCalibDialog.h"
@@ -114,9 +115,6 @@ MechanicalPose defaultBoardReadyOriginPose(const BoardDefinition &boardDefinitio
 }
 
 MechanicalPose boardScanOriginPose(const ProgramModel &program, const MechanicalPose &fallbackPose) {
-  if (program.runtimeSummary.hasOriginCalibration) {
-    return program.runtimeSummary.originCorrectedPose;
-  }
   if (program.originCalibration.calibrated) {
     return program.originCalibration.machineReferencePose;
   }
@@ -653,7 +651,6 @@ void MainWindow::buildMenus() {
   auto *unloadBoardAction = motionMenu->addAction(QStringLiteral("出板"));
 
   auto *calibrationMenu = menuBar()->addMenu(QStringLiteral("校正"));
-  auto *markOffsetAction = calibrationMenu->addAction(QStringLiteral("Mark 点校正"));
   auto *originCalibAction = calibrationMenu->addAction(QStringLiteral("机械原点校正"));
   auto *laserOffsetAction = calibrationMenu->addAction(QStringLiteral("激光偏移校正"));
 
@@ -676,7 +673,6 @@ void MainWindow::buildMenus() {
   connect(openMotionAction, &QAction::triggered, this, &MainWindow::openMotionPanel);
   connect(loadBoardAction, &QAction::triggered, this, &MainWindow::loadBoardToTrack);
   connect(unloadBoardAction, &QAction::triggered, this, &MainWindow::unloadBoardFromTrack);
-  connect(markOffsetAction, &QAction::triggered, this, &MainWindow::openMarkOffsetCalibration);
   connect(originCalibAction, &QAction::triggered, this, &MainWindow::openOriginCalibration);
   connect(laserOffsetAction, &QAction::triggered, this, &MainWindow::openLaserOffsetCalibration);
   connect(openLogAction, &QAction::triggered, this, &MainWindow::openLogWindow);
@@ -856,8 +852,8 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   auto *startPreviewButton = new QPushButton(QStringLiteral("开始实时采图"), toolbarFrame);
   auto *stopPreviewButton = new QPushButton(QStringLiteral("停止采图"), toolbarFrame);
   auto *wholeBoardScanButton = new QPushButton(QStringLiteral("整板扫描"), toolbarFrame);
-  auto *markCalibButton = new QPushButton(QStringLiteral("Mark 校正"), toolbarFrame);
   auto *originCalibButton = new QPushButton(QStringLiteral("原点校正"), toolbarFrame);
+  auto *laserCalibButton = new QPushButton(QStringLiteral("激光偏移"), toolbarFrame);
   toggleCodeCameraViewButton_ = new QPushButton(QStringLiteral("读码相机视图"), toolbarFrame);
   toggleFovButton_ = new QPushButton(QStringLiteral("隐藏 FOV 640x360"), toolbarFrame);
   auto *gestureHelpButton = new QPushButton(QStringLiteral("? 操作提示"), toolbarFrame);
@@ -883,8 +879,8 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   buttonRowTop->addStretch();
   buttonRowTop->addWidget(settingsButton);
 
-  buttonRowBottom->addWidget(markCalibButton);
   buttonRowBottom->addWidget(originCalibButton);
+  buttonRowBottom->addWidget(laserCalibButton);
   buttonRowBottom->addWidget(toggleCodeCameraViewButton_);
   buttonRowBottom->addWidget(toggleFovButton_);
   buttonRowBottom->addStretch();
@@ -942,8 +938,8 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   connect(startPreviewButton, &QPushButton::clicked, this, &MainWindow::startCameraPreview);
   connect(stopPreviewButton, &QPushButton::clicked, this, &MainWindow::stopCameraPreview);
   connect(wholeBoardScanButton, &QPushButton::clicked, this, &MainWindow::runWholeBoardScan);
-  connect(markCalibButton, &QPushButton::clicked, this, &MainWindow::openMarkOffsetCalibration);
   connect(originCalibButton, &QPushButton::clicked, this, &MainWindow::openOriginCalibration);
+  connect(laserCalibButton, &QPushButton::clicked, this, &MainWindow::openLaserOffsetCalibration);
   connect(toggleCodeCameraViewButton_, &QPushButton::clicked, this, &MainWindow::toggleCodeCameraView);
   connect(toggleFovButton_, &QPushButton::clicked, this, &MainWindow::toggleFovOverlay);
   connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
@@ -1360,19 +1356,12 @@ void MainWindow::refreshTemplatePreviewSummary() {
                         ? QStringLiteral("暂无")
                         : QString::fromStdString(currentProgram->runtimeSummary.lastBoardScanSummary));
 
-  if (currentProgram->runtimeSummary.hasMarkCalibration) {
-    calibrationLines << QStringLiteral("Mark 校正：dX=%1 mm, dY=%2 mm, dR=%3°")
-                            .arg(currentProgram->runtimeSummary.markCalibrationOffsetXmm, 0, 'f', 4)
-                            .arg(currentProgram->runtimeSummary.markCalibrationOffsetYmm, 0, 'f', 4)
-                            .arg(currentProgram->runtimeSummary.markCalibrationRotationDegrees, 0, 'f', 3);
-  }
-
-  if (currentProgram->runtimeSummary.hasOriginCalibration) {
+  if (currentProgram->originCalibration.calibrated) {
     calibrationLines << QStringLiteral("原点补偿：X=%1, Y=%2, Z=%3, R=%4")
-                            .arg(currentProgram->runtimeSummary.originCorrectedPose.x, 0, 'f', 3)
-                            .arg(currentProgram->runtimeSummary.originCorrectedPose.y, 0, 'f', 3)
-                            .arg(currentProgram->runtimeSummary.originCorrectedPose.z, 0, 'f', 3)
-                            .arg(currentProgram->runtimeSummary.originCorrectedPose.r, 0, 'f', 3);
+                            .arg(currentProgram->originCalibration.machineReferencePose.x, 0, 'f', 3)
+                            .arg(currentProgram->originCalibration.machineReferencePose.y, 0, 'f', 3)
+                            .arg(currentProgram->originCalibration.machineReferencePose.z, 0, 'f', 3)
+                            .arg(currentProgram->originCalibration.machineReferencePose.r, 0, 'f', 3);
   }
 
   templatePreviewValueLabel_->setText(lines.join(QStringLiteral("\n")));
@@ -1814,71 +1803,26 @@ void MainWindow::openProductionHistory() {
   dialog.exec();
 }
 
-void MainWindow::openMarkOffsetCalibration() {
-  if (!virtualCamera_.isOpened()) {
-    startCameraPreview();
-  }
-
-  MarkOffsetDialog dialog(this);
-  dialog.setFrameProvider([this] { return currentCalibrationFrame(); },
-                          [this] { return virtualCamera_.isOpened(); });
-  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
-    dialog.setAlignmentContext(currentProgram->marks, currentProgram->pixelScaleCalibration);
-  }
-  connect(&dialog, &MarkOffsetDialog::compensationApplied, this,
-          [this](const double deltaXmm, const double deltaYmm, const double rotationDegrees) {
-            updateProgram([deltaXmm, deltaYmm, rotationDegrees](ProgramModel &program) {
-              program.runtimeSummary.hasMarkCalibration = true;
-              program.runtimeSummary.markCalibrationOffsetXmm = deltaXmm;
-              program.runtimeSummary.markCalibrationOffsetYmm = deltaYmm;
-              program.runtimeSummary.markCalibrationRotationDegrees = rotationDegrees;
-            });
-            CalibrationRecord record;
-            record.calibrationType = "mark_alignment";
-            record.notes = "dX=" + std::to_string(deltaXmm) + ", dY=" + std::to_string(deltaYmm) +
-                           ", dR=" + std::to_string(rotationDegrees);
-            logCalibrationRecord(record);
-            MechanicalPose pose = currentMechanicalPose();
-            pose.x -= deltaXmm;
-            pose.y -= deltaYmm;
-            pose.r -= rotationDegrees;
-            applyMechanicalPose(pose, QStringLiteral("Mark 校正补偿"));
-            refreshTemplatePreviewSummary();
-          });
-  dialog.exec();
-}
-
 void MainWindow::openOriginCalibration() {
-  if (!virtualCamera_.isOpened()) {
-    startCameraPreview();
-  }
+  ensureCameraPreview();
 
   OriginCalibDialog dialog(this);
-  dialog.setFrameProvider([this] { return currentCalibrationFrame(); },
-                          [this] { return virtualCamera_.isOpened(); });
+  dialog.setFrameProvider([this] { return currentCalibrationFrame(); });
+  dialog.setJogProvider(makeJogProvider());
+  dialog.setPoseProvider([this] { return currentMechanicalPose(); });
+  dialog.setPoseInfoProvider([this] { return virtualCamera_.lastPoseInfo(); });
+
   if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
-    dialog.setCalibrationContext(currentProgram->calibrationData, currentMechanicalPose());
-  } else {
-    dialog.setCalibrationContext(CameraCalibrationData {}, currentMechanicalPose());
+    dialog.setProgramContext(*currentProgram);
   }
-  connect(&dialog, &OriginCalibDialog::correctedPoseApplied, this,
-          [this](const double x, const double y, const double z, const double r) {
-            const auto currentProgram = programManager_.currentProgram();
-            const BoardDefinition boardDefinition =
-                currentProgram.has_value() ? currentProgram->boardDefinition : BoardDefinition {};
-            const MechanicalPose correctedCornerPose {x, y, z, r};
-            const MechanicalPose logicalOriginPose {
-                correctedCornerPose.x - boardDefinition.boardLengthMm,
-                correctedCornerPose.y - boardDefinition.boardWidthMm,
-                correctedCornerPose.z,
-                correctedCornerPose.r,
-            };
+
+  connect(&dialog, &OriginCalibDialog::originApplied, this,
+          [this](const double originX, const double originY, const double originZ, const double originR) {
+            const MechanicalPose logicalOriginPose {originX, originY, originZ, originR};
 
             updateProgram([logicalOriginPose](ProgramModel &program) {
               program.originCalibration.calibrated = true;
               program.originCalibration.machineReferencePose = logicalOriginPose;
-              program.runtimeSummary.hasOriginCalibration = true;
-              program.runtimeSummary.originCorrectedPose = logicalOriginPose;
             });
             CalibrationRecord record;
             record.calibrationType = "origin";
@@ -1887,39 +1831,33 @@ void MainWindow::openOriginCalibration() {
             record.originR = logicalOriginPose.r;
             record.notes = "Stopper-corner calibration converted to logical board origin";
             logCalibrationRecord(record);
-            applyMechanicalPose(correctedCornerPose, QStringLiteral("原点校正对位"));
+            applyMechanicalPose(logicalOriginPose, QStringLiteral("原点校正 — 移动到逻辑原点"));
             appendLog(QStringLiteral("已将挡板右下角参考位换算为逻辑原点：X=%1, Y=%2")
                           .arg(logicalOriginPose.x, 0, 'f', 3)
                           .arg(logicalOriginPose.y, 0, 'f', 3));
             refreshTemplatePreviewSummary();
           });
+
   dialog.exec();
 }
 
 void MainWindow::openLaserOffsetCalibration() {
-  if (!virtualCamera_.isOpened()) {
-    startCameraPreview();
-  }
+  ensureCameraPreview();
 
   LaserOffsetCalibDialog dialog(this);
-  dialog.setFrameProvider([this] { return currentCalibrationFrame(); },
-                          [this] { return virtualCamera_.isOpened(); });
+  dialog.setFrameProvider([this] { return currentCalibrationFrame(); });
+  dialog.setJogProvider(makeJogProvider());
+  dialog.setPoseProvider([this] { return currentMechanicalPose(); });
+  dialog.setPoseInfoProvider([this] { return virtualCamera_.lastPoseInfo(); });
 
-  const auto currentProgram = programManager_.currentProgram();
-  PixelPoint opticalCenter {0.0, 0.0};
-  if (currentProgram.has_value()) {
-    if (selectedMarkIndex_ >= 0 && selectedMarkIndex_ < static_cast<int>(currentProgram->marks.size())) {
-      const auto &selectedMark = currentProgram->marks[static_cast<std::size_t>(selectedMarkIndex_)];
-      opticalCenter = PixelPoint {selectedMark.x, selectedMark.y};
-    }
-    dialog.setCalibrationContext(currentProgram->pixelScaleCalibration, opticalCenter);
+  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+    dialog.setProgramContext(*currentProgram);
   }
 
   connect(&dialog, &LaserOffsetCalibDialog::calibrationApplied, this,
           [this](const LaserOffsetCalibration &calibration) {
             updateProgram([calibration](ProgramModel &program) {
               program.laserOffsetCalibration = calibration;
-              program.runtimeSummary.hasLaserOffsetCalibration = true;
             });
             CalibrationRecord record;
             record.calibrationType = "laser_offset";
@@ -2689,18 +2627,42 @@ void MainWindow::centerOnCurrentSelection() {
   if (const auto currentProgram = programManager_.currentProgram();
       currentProgram.has_value() && currentBoardSceneLayout(currentProgram).has_value()) {
     const auto layout = *currentBoardSceneLayout(currentProgram);
+    double boardX = 0.0, boardY = 0.0;
+    bool found = false;
+
     if (selectedMarkIndex_ >= 0 && selectedMarkIndex_ < static_cast<int>(currentProgram->marks.size())) {
       const auto &mark = currentProgram->marks[static_cast<std::size_t>(selectedMarkIndex_)];
+      boardX = mark.x;
+      boardY = mark.y;
       const auto scenePoint = BoardViewTransform::boardToScenePoint(layout, MillimeterPoint {mark.x, mark.y});
       workbenchGraphicsView_->centerOn(scenePoint.x, scenePoint.y);
-      return;
-    }
-
-    if (selectedRoiIndex_ >= 0 && selectedRoiIndex_ < static_cast<int>(currentProgram->rois.size())) {
+      found = true;
+    } else if (selectedRoiIndex_ >= 0 && selectedRoiIndex_ < static_cast<int>(currentProgram->rois.size())) {
       const auto &roi = currentProgram->rois[static_cast<std::size_t>(selectedRoiIndex_)];
+      boardX = roi.x + roi.width / 2.0;
+      boardY = roi.y + roi.height / 2.0;
       const auto sceneRect =
           BoardViewTransform::boardToSceneTopLeftRect(layout, MillimeterPoint {roi.x, roi.y}, roi.width, roi.height);
       workbenchGraphicsView_->centerOn(sceneRect.x + sceneRect.width / 2.0, sceneRect.y + sceneRect.height / 2.0);
+      found = true;
+    }
+
+    // Also move virtual camera to target position if origin is calibrated
+    if (found && currentProgram->originCalibration.calibrated) {
+      const MechanicalPose currentPose = currentMechanicalPose();
+      const MechanicalPose &origin = currentProgram->originCalibration.machineReferencePose;
+      const MechanicalPose targetPose {
+          origin.x + boardX,
+          origin.y + boardY,
+          currentPose.z,
+          currentPose.r};
+      const bool moveOk = virtualMotionSystem_.moveCameraPose(targetPose, 120.0, 4.0);
+      tickVirtualDevices();
+      appendLog(moveOk
+                    ? QStringLiteral("定位到选中：板坐标 (%1, %2) → 机械 (%3, %4)")
+                          .arg(boardX, 0, 'f', 2).arg(boardY, 0, 'f', 2)
+                          .arg(targetPose.x, 0, 'f', 3).arg(targetPose.y, 0, 'f', 3)
+                    : QStringLiteral("定位到选中失败"));
     }
   }
 }
@@ -2842,6 +2804,20 @@ QImage MainWindow::currentCalibrationFrame() const {
 
 MechanicalPose MainWindow::currentMechanicalPose() const {
   return virtualMotionSystem_.currentCameraPose();
+}
+
+void MainWindow::ensureCameraPreview() {
+  if (!virtualCamera_.isOpened()) {
+    startCameraPreview();
+  }
+}
+
+std::function<void(double dx, double dy)> MainWindow::makeJogProvider() {
+  return [this](const double dx, const double dy) {
+    virtualMotionSystem_.jogAxis(MotionAxis::CameraX, dx);
+    virtualMotionSystem_.jogAxis(MotionAxis::CameraY, dy);
+    tickVirtualDevices();
+  };
 }
 
 void MainWindow::applyMechanicalPose(const MechanicalPose &pose, const QString &reason) {
@@ -2987,9 +2963,7 @@ void MainWindow::switchToRunMode() {
   appMode_ = AppMode::Run;
 
   // Ensure camera is running
-  if (!virtualCamera_.isOpened()) {
-    startCameraPreview();
-  }
+  ensureCameraPreview();
 
   // Initialize workflow context
   const auto currentProgram = programManager_.currentProgram();

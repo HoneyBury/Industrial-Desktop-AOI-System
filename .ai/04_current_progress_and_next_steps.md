@@ -18,6 +18,11 @@
 2. **把虚拟相机/虚拟物理卡坐标体系接到所有编辑和校正入口**（P0）  
 3. **继续减少 MainWindow 中的交互拼装代码，把设备语义收拢到更清晰的模块边界**（P1）  
 
+补充说明：
+
+- 基于新的工业业务理解，后续校正与坐标链路的统一规划文档见 [docs/industrial_calibration_and_coordinate_plan.md](/Users/honeybury/workspace/Industrial-Desktop-AOI-System/docs/industrial_calibration_and_coordinate_plan.md)
+- 后续实现时，以该文档中的模块划分、坐标链路、校正职责、UI 窗口和验收标准为准
+
 ## 二、当前已具备的基础
 
 ### 1. 虚拟运动与运输系统 ✅
@@ -78,11 +83,30 @@
 
 ### 6. 回归测试 ✅
 
-当前核心测试已扩展到 `59` 项，全部通过，新增覆盖：
+当前核心测试已扩展到 `74` 项，全部通过，新增覆盖：
 
 - `VirtualMotionSystem`
 - 运输一轮完成后再次装板 / 继续移动相机轴
 - `VirtualCameraDevice` 随机械坐标切换不同 FOV
+
+### 7. 校正模块体系（P0 完成）✅
+
+按照 `docs/industrial_calibration_and_coordinate_plan.md` 的模块划分，P0 校正模块层已全部建立：
+
+- **OriginCalibrationModule** — 独立无 Qt 依赖的原点校正模块，管理参考位、逻辑原点换算、apply/reset 完整状态
+- **LaserOffsetCalibrationModule** — 独立无 Qt 依赖的镭射偏移模块，管理相机/镭射参考点记录、偏移计算、apply/clear
+- **PixelToMachineCalibrationModule** — 像素比例参数管理与换算模块，支持从 FOV 推算默认比例
+- **CoordinateTransformer** 已补全工业坐标链方法：`machineToProduct`、`applyLaserOffset`、`imageClickToMoveDelta`、`targetProductPointToLaserPosition`、`applyMarkTransform`
+- `OriginCalibDialog` 和 `LaserOffsetCalibDialog` 已改为薄 UI 层，所有状态和计算委托给对应的 `CalibrationModule`
+- `MarkOffsetDialog` 已从 CMakeLists 和源码树彻底移除
+
+### 8. 新增测试覆盖 ✅
+
+本轮新增 15 个单元测试，覆盖：
+- `OriginCalibrationModule` 空状态、参考位、逻辑原点计算、apply、reset（5 项）
+- `LaserOffsetCalibrationModule` 空状态、记录/计算、apply/clear、不完整输入（5 项）
+- `PixelToMachineCalibrationModule` FOV 推算、偏移换算（3 项）
+- `CoordinateTransformer` 新增方法：machineToProduct 逆变换验证、imageClickToMoveDelta、applyLaserOffset、applyMarkTransform（4 项）
 
 ## 三、当前最重要的剩余问题
 
@@ -216,7 +240,86 @@
 → 生成整板拼图
 ```
 
-## 六、当前最不该做的事
+## 六、下一阶段清单
+
+### 1. 界面元素清单
+
+- 通用窗口结构：左右布局，左侧为实时虚拟相机画面，右侧为控制面板
+- 左侧实时画面：显示当前 FOV 图像、中心十字准星、当前像素坐标、当前机械坐标简要信息、当前板内逻辑坐标、当前物理卡坐标
+- 左侧状态条：显示 `板状态`、`是否在板内`、`当前步长`、`当前程序名`
+- 右侧点动区：`上`、`下`、`左`、`右` 四个按钮
+- 右侧步长区：步长输入框，预设按钮 `0.01`、`0.1`、`1.0`、`5.0 mm`
+- 右侧机械坐标区：显示 `X`、`Y`、`Z`、`R` 当前值
+- 右侧像素坐标区：显示当前图像中心像素 `Px`、`Py`，以及十字准星对应的板坐标 `BoardX`、`BoardY`
+- 右侧相机信息区：显示 FOV 尺寸、分辨率、当前整板图路径、当前是否为虚拟相机模式
+- 原点校正窗口专属区：`设置当前点为原点参考位`、`应用原点`、`重置本次原点结果`
+- 原点校正结果区：显示“当前挡板参考位机械坐标”和“换算后的逻辑原点坐标”
+- 镭射偏移校正窗口专属区：`记录相机参考点`、`记录镭射参考点`、`计算偏移`、`应用镭射偏移`、`清空本次记录`
+- 镭射偏移结果区：显示 `cameraToLaserDxMm`、`cameraToLaserDyMm`、记录时间、是否已应用
+- 编辑界面 `定位到选中` 配套元素：显示对象逻辑坐标、目标机械坐标、`定位到选中` 按钮、定位结果提示
+- 统一日志区：显示每次点动、记录点、应用原点、应用偏移、定位到选中的动作日志
+- 关闭策略：窗口关闭前若有未应用结果，弹出确认提示
+
+### 2. 按钮行为清单
+
+- `上`：相机 `Y+step` 或按当前坐标正方向移动一次，完成后实时画面刷新
+- `下`：相机 `Y-step` 移动一次，完成后刷新画面
+- `左`：相机 `X-step` 移动一次，完成后刷新画面
+- `右`：相机 `X+step` 移动一次，完成后刷新画面
+- 点动按钮共性：全部通过 `VirtualMotionSystem.moveCameraXY/moveCameraPose`，不允许直接改 UI 坐标
+- 步长预设按钮：点击后直接写入步长输入框，并作为后续点动距离
+- 步长输入框：仅允许正值，超范围时提示并回退到最近合法值
+- `设置当前点为原点参考位`：记录当前机械坐标为挡板右下参考位，同时记录当前图像中心像素
+- `应用原点`：把当前参考位换算成逻辑整板原点，写回程序并刷新主界面、运行界面、整板扫描原点
+- `重置本次原点结果`：只清空本次窗口内暂存结果，不修改已保存程序
+- `记录相机参考点`：保存当前机械坐标和当前像素中心为相机参考点
+- `记录镭射参考点`：保存当前机械坐标为镭射参考点，可附加当前板坐标
+- `计算偏移`：用“镭射参考点 - 相机参考点”计算 `Dx/Dy`，显示但不立即写回
+- `应用镭射偏移`：把当前 `Dx/Dy` 写回程序，并刷新 `PreLaser/LaserExecute` 目标计算
+- `清空本次记录`：清空相机参考点、镭射参考点和未应用结果
+- `定位到选中`：读取当前选中对象逻辑坐标，换算目标机械坐标，调用统一虚拟运控移动，相机画面与运控动画同步刷新
+- `关闭窗口`：若存在未应用原点或未应用偏移结果，弹出“放弃/继续编辑/立即应用”确认
+
+### 3. 写回字段清单
+
+- 原点校正窗口写回 `program.originCalibration.calibrated = true`
+- 原点校正窗口写回 `program.originCalibration.machineReferencePose`
+- 原点校正窗口同步写回 `program.runtimeSummary.hasOriginCalibration = true`
+- 原点校正窗口同步写回 `program.runtimeSummary.originCorrectedPose`
+- 原点校正窗口建议记录“当前用户设置的是挡板右下参考位，经换算得到逻辑原点”的说明
+- 原点校正窗口建议写入 `program.originCalibration.imageReferencePixel`
+- 镭射偏移校正窗口写回 `program.laserOffsetCalibration.calibrated = true`
+- 镭射偏移校正窗口写回 `program.laserOffsetCalibration.cameraToLaserDxMm`
+- 镭射偏移校正窗口写回 `program.laserOffsetCalibration.cameraToLaserDyMm`
+- 镭射偏移校正窗口同步写回 `program.runtimeSummary.hasLaserOffsetCalibration = true`
+- 若保留镜像字段，还应同步 `program.runtimeSummary.laserOffsetDxMm`、`program.runtimeSummary.laserOffsetDyMm`
+- 编辑界面 `定位到选中` 不应写程序永久数据，只更新当前机械坐标、当前虚拟相机帧和运行态显示
+- 每次应用原点或镭射偏移，都要写入 `calibration_history` 或对应日志记录，至少包含时间、类型、结果值、备注
+- 原点应用后，刷新整板扫描规划、运行态预览、校正摘要、运控窗口程序状态
+- 镭射偏移应用后，刷新 `PreLaserStep`、`LaserExecuteStep` 和相关摘要显示
+
+### 4. 验收用例清单
+
+- 用例 1：打开原点校正窗口后，不做任何动作，只看实时画面，画面应随主窗口相机运动持续变化
+- 用例 2：在原点窗口中点击 `上/下/左/右`，左侧实时画面、当前机械坐标、运控动画三者同步变化
+- 用例 3：修改步长为 `0.01/0.1/1.0/5.0` 后，点动位移量准确反映到机械坐标变化
+- 用例 4：将相机移动到挡板右下参考位，点击 `设置当前点为原点参考位`，结果区出现当前参考位和换算后的逻辑原点
+- 用例 5：点击 `应用原点` 后，关闭窗口重开，原点摘要仍存在，整板扫描起点与新原点一致
+- 用例 6：原点应用后执行整板扫描，FOV 路径正常覆盖整板，不能整体镜像或跑出板边界
+- 用例 7：打开镭射偏移校正窗口，点动相机后左侧画面与机械坐标同步变化
+- 用例 8：依次记录相机参考点和镭射参考点，点击 `计算偏移`，结果区出现稳定的 `Dx/Dy`
+- 用例 9：点击 `应用镭射偏移` 后，后续 `PreLaser/LaserExecute` 计算出来的目标位姿带上该偏移
+- 用例 10：未记录完整参考点时点击 `计算偏移`，提示“缺少参考点”，不能写入程序
+- 用例 11：点击 `清空本次记录` 后，本次暂存结果消失，但已应用到程序的历史结果不应被误删
+- 用例 12：移除 `Mark` 偏移窗口后，菜单、按钮、工具栏中不再出现该入口，且原有流程无断链
+- 用例 13：在编辑界面选中一个 `Mark`，点击 `定位到选中`，相机移动到目标位置，左侧 FOV 显示对应区域
+- 用例 14：在编辑界面选中一个 `ROI`，点击 `定位到选中`，行为同上，且对象逻辑坐标与画面位置一致
+- 用例 15：在板未到位或当前 FOV 不在板内时，校正窗口明确显示“当前不在有效板区域”，但仍允许继续点动
+- 用例 16：运行模式下打开这些窗口，点动或应用校正后，运行预览叠层中的机械坐标、卡坐标、板状态同步刷新
+- 用例 17：应用原点和应用镭射偏移后，数据库或日志中能查到对应校正记录
+- 用例 18：关闭窗口时若有未应用结果，应弹出确认，不允许无提示丢失结果
+
+## 七、当前最不该做的事
 
 1. 不要把新的校正交互继续临时写进 `MainWindow`
 2. 不要重新把真实 Mac 摄像头路径混回主预览链

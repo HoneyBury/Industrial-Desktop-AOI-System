@@ -1,10 +1,24 @@
 {
-  "programOpenPath": "",
-  "templateFolderPath": "",
-  "persistLogs": false,
-  "logFilePath": "",
-  "showLogWindow": true,
-  "workMode": "manual",
-  "alarmEnabled": false,
-  "maxDefectCount": 10
+  "application": {
+    "language": "zh_CN",
+    "programOpenPath": "",
+    "templateFolderPath": "",
+    "persistLogs": false,
+    "logFilePath": "",
+    "logMinLevel": "Info"
+  },
+  "ui": {
+    "showLogWindow": true,
+    "theme": "dark"
+  },
+  "runtime": {
+    "workMode": "manual",
+    "alarmEnabled": false,
+    "maxDefectCount": 10
+  },
+  "camera": {
+    "deviceIndex": 0,
+    "width": 1920,
+    "height": 1080
+  }
 }
