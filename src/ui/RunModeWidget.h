@@ -9,6 +9,10 @@
 #include <QString>
 #include <functional>
 
+#include <QChart>
+#include <QChartView>
+#include <QLineSeries>
+
 class QBoxLayout;
 class QGraphicsScene;
 class QGraphicsView;
@@ -76,6 +80,12 @@ private:
   QPushButton *stopButton_ {nullptr};
   QPushButton *pauseButton_ {nullptr};
   QPushButton *singleStepButton_ {nullptr};
+
+  // Yield trend chart
+  QChartView *yieldChartView_ {nullptr};
+  QChart *yieldChart_ {nullptr};
+  QLineSeries *yieldSeries_ {nullptr};
+  int yieldDataPointCount_ {0};
 
   FrameProvider frameProvider_;
   BoardCountProvider boardCountProvider_;

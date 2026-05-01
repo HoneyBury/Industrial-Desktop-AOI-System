@@ -101,6 +101,7 @@ add_library(aoi_core
   src/transport/VirtualTransportController.cpp
   src/program/ProgramManager.cpp
   src/database/DatabaseManager.cpp
+  src/export/CsvExporter.cpp
   src/ai/AiInferencer.cpp)
 
 target_include_directories(aoi_core

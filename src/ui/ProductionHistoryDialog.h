@@ -28,6 +28,7 @@ private:
   void buildUi();
   void applyFilter();
   void showDetail(int row);
+  void exportToCsv();
 
   DatabaseManager *databaseManager_;
 
@@ -43,6 +44,9 @@ private:
 
   // Table
   QTableWidget *resultTable_ {nullptr};
+
+  // Export
+  QPushButton *exportButton_ {nullptr};
 
   // Detail
   QTextEdit *detailTextEdit_ {nullptr};

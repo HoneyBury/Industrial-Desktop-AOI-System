@@ -3,6 +3,8 @@
 #ifdef AOI_HAS_QT_WIDGETS
 
 #include <QBoxLayout>
+#include <QChart>
+#include <QChartView>
 #include <QDateTime>
 #include <QFrame>
 #include <QGraphicsPixmapItem>
@@ -11,6 +13,7 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineSeries>
 #include <QPainter>
 #include <QProgressBar>
 #include <QPushButton>
@@ -18,6 +21,7 @@
 #include <QSplitter>
 #include <QTextEdit>
 #include <QTimer>
+#include <QValueAxis>
 #include <QVBoxLayout>
 
 namespace {
@@ -143,6 +147,26 @@ void RunModeWidget::recordBoardResult(const bool ok) {
   ++currentBoardIndex_;
   refreshDashboard();
 
+  // Update yield trend chart
+  if (yieldSeries_ != nullptr) {
+    const int total = okCount_ + ngCount_;
+    const double yield = total > 0 ? 100.0 * static_cast<double>(okCount_) / static_cast<double>(total) : 0.0;
+    yieldSeries_->append(currentBoardIndex_, yield);
+    ++yieldDataPointCount_;
+
+    // Auto-adjust X axis range as data grows
+    if (yieldChart_ != nullptr) {
+      const auto axes = yieldChart_->axes(Qt::Horizontal);
+      if (!axes.isEmpty()) {
+        auto *axisX = qobject_cast<QValueAxis *>(axes.first());
+        if (axisX != nullptr) {
+          const double maxX = static_cast<double>(qMax(10, currentBoardIndex_ + 2));
+          axisX->setRange(0, maxX);
+        }
+      }
+    }
+  }
+
   const QString resultText = ok ? QStringLiteral("OK") : QStringLiteral("NG");
   appendProductionLog(QStringLiteral("板 #%1 检测完成，结果：%2").arg(currentBoardIndex_).arg(resultText));
 }
@@ -263,6 +287,56 @@ void RunModeWidget::buildDashboard(QBoxLayout *parentLayout) {
   statsLayout->addWidget(boardCard, 1, 0);
   statsLayout->addWidget(totalCard, 1, 1);
   parentLayout->addWidget(statsGroup);
+
+  // Yield trend chart
+  auto *yieldGroup = new QGroupBox(QString::fromUtf8("良率趋势"), this);
+  auto *yieldLayout = new QVBoxLayout(yieldGroup);
+  yieldLayout->setContentsMargins(4, 16, 4, 4);
+
+  yieldSeries_ = new QLineSeries(this);
+  yieldSeries_->setName(QString::fromUtf8("良率 %"));
+  yieldSeries_->setColor(QColor("#22c55e"));
+  yieldSeries_->setPen(QPen(QColor("#22c55e"), 2));
+
+  yieldChart_ = new QChart();
+  yieldChart_->addSeries(yieldSeries_);
+  yieldChart_->setTitle(QString::fromUtf8("实时良率趋势"));
+  yieldChart_->setTitleBrush(QBrush(QColor("#94a3b8")));
+  yieldChart_->setBackgroundBrush(QBrush(QColor("#0f172a")));
+  yieldChart_->setPlotAreaBackgroundBrush(QBrush(QColor("#020617")));
+  yieldChart_->setPlotAreaBackgroundVisible(true);
+  yieldChart_->legend()->setVisible(false);
+  yieldChart_->setMargins(QMargins(0, 0, 0, 0));
+
+  auto *axisX = new QValueAxis(this);
+  axisX->setTitleText(QString::fromUtf8("板号"));
+  axisX->setTitleBrush(QBrush(QColor("#64748b")));
+  axisX->setLabelsColor(QColor("#94a3b8"));
+  axisX->setGridLineColor(QColor("#1e293b"));
+  axisX->setRange(0, 10);
+  axisX->setLabelFormat("%d");
+  yieldChart_->addAxis(axisX, Qt::AlignBottom);
+  yieldSeries_->attachAxis(axisX);
+
+  auto *axisY = new QValueAxis(this);
+  axisY->setTitleText(QStringLiteral("%"));
+  axisY->setTitleBrush(QBrush(QColor("#64748b")));
+  axisY->setLabelsColor(QColor("#94a3b8"));
+  axisY->setGridLineColor(QColor("#1e293b"));
+  axisY->setRange(0, 100);
+  axisY->setLabelFormat("%.0f");
+  yieldChart_->addAxis(axisY, Qt::AlignLeft);
+  yieldSeries_->attachAxis(axisY);
+
+  yieldChartView_ = new QChartView(yieldChart_, yieldGroup);
+  yieldChartView_->setRenderHint(QPainter::Antialiasing, true);
+  yieldChartView_->setStyleSheet(QStringLiteral(
+      "QChartView { background: #0f172a; border: 1px solid #334155; border-radius: 8px; }"));
+  yieldChartView_->setMinimumHeight(160);
+  yieldChartView_->setMaximumHeight(220);
+
+  yieldLayout->addWidget(yieldChartView_);
+  parentLayout->addWidget(yieldGroup);
 
   // Step progress
   auto *progressGroup = new QGroupBox(QString::fromUtf8("流程进度"), this);

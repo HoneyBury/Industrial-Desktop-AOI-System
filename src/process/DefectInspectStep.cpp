@@ -117,10 +117,15 @@ StepExecutionResult DefectInspectStep::execute(WorkflowContext &context) const {
       continue;
     }
 
+    // Prefer per-ROI FOV capture image; fall back to full-frame image.
+    const auto roiImageIt = context.capturedRoiImages.find(config.roiName);
+    const std::string &inspectImagePath =
+        (roiImageIt != context.capturedRoiImages.end()) ? roiImageIt->second : context.currentImagePath;
+
     switch (config.detectorType) {
     case RoiDetectorType::Geometry:
     case RoiDetectorType::Color: {
-      const auto detectResult = roiDetector.detectByThreshold(context.currentImagePath);
+      const auto detectResult = roiDetector.detectByThreshold(inspectImagePath);
       inspection.passed = static_cast<bool>(detectResult);
       inspection.candidateCount = detectResult ? static_cast<int>(detectResult.value.size()) : 0;
       inspection.confidence = inspection.passed ? 0.75 : 0.0;
@@ -129,7 +134,7 @@ StepExecutionResult DefectInspectStep::execute(WorkflowContext &context) const {
     }
     case RoiDetectorType::Template: {
       const auto detectResult = roiDetector.detectByTemplate(
-          context.currentImagePath, config.templateImagePath);
+          inspectImagePath, config.templateImagePath);
       inspection.passed = static_cast<bool>(detectResult);
       inspection.candidateCount = detectResult ? static_cast<int>(detectResult.value.size()) : 0;
       inspection.confidence = inspection.passed ? 0.8 : 0.0;
@@ -146,7 +151,7 @@ StepExecutionResult DefectInspectStep::execute(WorkflowContext &context) const {
         break;
       }
 
-      const auto inferResult = inferencer.infer(context.currentImagePath);
+      const auto inferResult = inferencer.infer(inspectImagePath);
       if (!inferResult) {
         inspection.passed = false;
         inspection.summary = inferResult.message;
@@ -164,7 +169,7 @@ StepExecutionResult DefectInspectStep::execute(WorkflowContext &context) const {
       break;
     }
     case RoiDetectorType::Code: {
-      const auto codeResult = codeReader.readQrCode(context.currentImagePath);
+      const auto codeResult = codeReader.readQrCode(inspectImagePath);
       inspection.passed = static_cast<bool>(codeResult);
       inspection.decodedText = codeResult ? codeResult.value : "";
       inspection.candidateCount = inspection.passed ? 1 : 0;

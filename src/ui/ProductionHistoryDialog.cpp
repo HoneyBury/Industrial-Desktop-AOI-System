@@ -5,15 +5,19 @@
 #include <QComboBox>
 #include <QDateTime>
 #include <QDialogButtonBox>
+#include <QFileDialog>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QVBoxLayout>
+
+#include "export/CsvExporter.h"
 
 ProductionHistoryDialog::ProductionHistoryDialog(DatabaseManager *databaseManager,
                                                  QWidget *parent)
@@ -109,6 +113,14 @@ void ProductionHistoryDialog::buildUi() {
       "QPushButton:hover { background: #2563eb; }"));
   connect(refreshButton, &QPushButton::clicked, this, &ProductionHistoryDialog::refreshData);
   filterLayout->addWidget(refreshButton);
+
+  exportButton_ = new QPushButton(QStringLiteral("导出 CSV"), this);
+  exportButton_->setStyleSheet(QStringLiteral(
+      "QPushButton { background: #0f766e; color: #f8fafc; border: 1px solid #115e59; "
+      "border-radius: 6px; padding: 6px 14px; font-weight: 600; }"
+      "QPushButton:hover { background: #0d9488; }"));
+  connect(exportButton_, &QPushButton::clicked, this, &ProductionHistoryDialog::exportToCsv);
+  filterLayout->addWidget(exportButton_);
 
   filterLayout->addStretch();
   rootLayout->addLayout(filterLayout);
@@ -274,6 +286,37 @@ void ProductionHistoryDialog::showDetail(const int row) {
       return;
     }
   }
+}
+
+void ProductionHistoryDialog::exportToCsv() {
+  if (currentRecords_.isEmpty()) {
+    QMessageBox::information(this, QStringLiteral("导出"),
+                             QStringLiteral("没有可导出的检测记录。"));
+    return;
+  }
+
+  const QString defaultName =
+      QStringLiteral("aoi_inspection_%1.csv")
+          .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
+  const QString filePath = QFileDialog::getSaveFileName(
+      this, QStringLiteral("导出检测结果为 CSV"), defaultName,
+      QStringLiteral("CSV 文件 (*.csv);;所有文件 (*)"));
+
+  if (filePath.isEmpty()) {
+    return;
+  }
+
+  const std::vector<InspectionRecord> records(currentRecords_.begin(), currentRecords_.end());
+  const int written = CsvExporter::exportInspectionRecords(filePath.toStdString(), records);
+
+  if (written < 0) {
+    QMessageBox::warning(this, QStringLiteral("导出失败"),
+                         QStringLiteral("无法打开文件进行写入:\n%1").arg(filePath));
+    return;
+  }
+
+  QMessageBox::information(this, QStringLiteral("导出成功"),
+                           QStringLiteral("已导出 %1 条检测记录。").arg(written));
 }
 
 #endif
