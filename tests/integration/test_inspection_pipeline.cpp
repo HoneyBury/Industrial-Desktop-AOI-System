@@ -2,6 +2,8 @@
 
 #include "ai/AiInferencer.h"
 #include "database/DatabaseManager.h"
+#include "motion/VirtualMotionController.h"
+#include "process/ProcessEngine.h"
 #include "program/ProgramManager.h"
 
 #include <cstdio>
@@ -67,6 +69,53 @@ TEST(InspectionPipelineTest, RunsBootstrapInspectionFlow) {
   if (aiResult) {
     EXPECT_TRUE(!aiResult.value.empty());
   }
+
+  databaseManager.close();
+  std::remove(dbPath.c_str());
+}
+
+TEST(InspectionPipelineTest, PersistsWorkflowBoardTraceAndInspectionResult) {
+  ProgramManager programManager;
+  ASSERT_TRUE(programManager.createDefaultProgram());
+  auto program = programManager.currentProgram();
+  ASSERT_TRUE(program.has_value());
+
+  DatabaseManager databaseManager;
+  const std::string dbPath = "test_pipeline_runtime.db";
+  ASSERT_TRUE(databaseManager.open(dbPath));
+
+  VirtualMotionController motionController;
+  motionController.moveAbsolute(MotionAxis::X, 100.0);
+  motionController.moveAbsolute(MotionAxis::Y, 200.0);
+
+  WorkflowContext context;
+  context.program = &(*program);
+  context.motionController = &motionController;
+  context.databaseManager = &databaseManager;
+  context.currentImagePath = "tests/data/demo.png";
+  context.currentMachinePose = MechanicalPose {100.0, 200.0, 0.0, 0.0};
+  context.reuseInjectedInputs = true;
+  context.measuredMarks = {
+      {"Mark-A", 105.0, 82.0, 52.0, 46.0, 0.0, 0.92, 0.82, 0.89, 16, "#ff4d4f",
+       MarkShape::Diamond, MarkAlgorithm::ColorBrushTemplate, true},
+      {"Mark-B", 245.0, 96.0, 48.0, 48.0, 0.0, 0.90, 0.80, 0.87, 14, "#f97316",
+       MarkShape::Cross, MarkAlgorithm::ColorBrushTemplate, true},
+  };
+
+  ProcessEngine engine;
+  const auto result = engine.runBoard(context);
+  ASSERT_TRUE(result.ok);
+
+  const auto inspectionResults = databaseManager.queryInspectionResults(5);
+  ASSERT_TRUE(inspectionResults);
+  ASSERT_TRUE(!inspectionResults.value.empty());
+  EXPECT_EQ(inspectionResults.value.front().finalDecision, std::string("OK"));
+  EXPECT_TRUE(!inspectionResults.value.front().detailsJson.empty());
+
+  const auto boardResults = databaseManager.queryBoardRecords(5);
+  ASSERT_TRUE(boardResults);
+  ASSERT_TRUE(!boardResults.value.empty());
+  EXPECT_EQ(boardResults.value.front().status, std::string("ok"));
 
   databaseManager.close();
   std::remove(dbPath.c_str());

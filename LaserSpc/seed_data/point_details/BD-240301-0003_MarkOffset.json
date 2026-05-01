@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "data": {
+    "laserTemplatePath": "templates/Program-B/MarkOffset.tpl",
+    "laserContent": "B1-MARK-OFFSET",
+    "readCodeContent": "READ-B1",
+    "success": false,
+    "programName": "Program-B",
+    "startTime": "2026-03-10T08:17:50",
+    "endTime": "2026-03-10T08:18:40"
+  }
+}

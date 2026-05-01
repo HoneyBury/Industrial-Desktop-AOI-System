@@ -1,7 +1,9 @@
 #include "process/LaserExecuteStep.h"
 
 #include "laser/ILaserController.h"
+#include "motion/MotionAxis.h"
 
+#include <algorithm>
 #include <sstream>
 
 LaserExecuteStep::LaserExecuteStep(std::string stepId) : stepId_(std::move(stepId)) {}
@@ -14,30 +16,75 @@ StepExecutionResult LaserExecuteStep::execute(WorkflowContext &context) const {
   if (!context.hasPreparedLaserPose) {
     return StepExecutionResult {StepExecutionStatus::Failed, "Pre-laser pose has not been prepared."};
   }
-
-  ILaserController *laser = context.laserController;
-  if (laser == nullptr) {
-    context.laserExecuted = true;
-    return StepExecutionResult {StepExecutionStatus::Succeeded,
-                                "No laser controller wired; skipping laser fire (simulated pass)."};
+  if (context.motionController == nullptr) {
+    return StepExecutionResult {StepExecutionStatus::Failed, "Motion controller is missing for laser execution."};
   }
 
-  if (!laser->isReady()) {
+  ILaserController *laser = context.laserController;
+  if (laser != nullptr && !laser->isReady()) {
     return StepExecutionResult {StepExecutionStatus::Failed, "Laser controller is not ready."};
   }
 
-  LaserMarkingParams params;
-  params.x = context.preparedLaserPose.x;
-  params.y = context.preparedLaserPose.y;
-  params.powerPercent = context.program != nullptr ? context.program->laserPowerPercent : 80.0;
-  params.frequencyKhz = context.program != nullptr ? context.program->laserFrequencyKhz : 20.0;
-  params.pulseWidthUs = context.program != nullptr ? context.program->laserPulseWidthUs : 10.0;
-  params.repeatCount = context.program != nullptr ? context.program->laserRepeatCount : 1;
+  int executedCount = 0;
+  int failedCount = 0;
+  std::string lastReport;
 
-  const bool ok = laser->executeMark(params);
-  context.laserExecuted = ok;
+  if (context.laserPointResults.empty()) {
+    context.laserPointResults.push_back(LaserPointExecutionResult {
+        "single_laser_pose",
+        {},
+        {},
+        context.preparedLaserPose,
+        false,
+        false,
+        false,
+        "DEMO-CODE-001",
+        {},
+        {},
+    });
+  }
+
+  for (auto &pointResult : context.laserPointResults) {
+    if (!context.motionController->moveAbsolute(MotionAxis::X, pointResult.machinePose.x) ||
+        !context.motionController->moveAbsolute(MotionAxis::Y, pointResult.machinePose.y) ||
+        !context.motionController->moveAbsolute(MotionAxis::Z, pointResult.machinePose.z) ||
+        !context.motionController->moveAbsolute(MotionAxis::R, pointResult.machinePose.r)) {
+      pointResult.summary = "Failed to move to compensated laser pose.";
+      pointResult.laserExecuted = false;
+      pointResult.passed = false;
+      ++failedCount;
+      continue;
+    }
+
+    LaserMarkingParams params;
+    params.x = pointResult.machinePose.x;
+    params.y = pointResult.machinePose.y;
+    params.powerPercent = context.program != nullptr ? context.program->laserPowerPercent : 80.0;
+    params.frequencyKhz = context.program != nullptr ? context.program->laserFrequencyKhz : 20.0;
+    params.pulseWidthUs = context.program != nullptr ? context.program->laserPulseWidthUs : 10.0;
+    params.repeatCount = context.program != nullptr ? context.program->laserRepeatCount : 1;
+
+    const bool ok = laser == nullptr ? true : laser->executeMark(params);
+    pointResult.laserExecuted = ok;
+    pointResult.passed = ok;
+    pointResult.summary = ok ? "Laser executed at compensated point." : "Laser execution failed.";
+    lastReport = laser != nullptr ? laser->lastMarkReport() : "Simulated laser execution without controller.";
+    if (ok) {
+      ++executedCount;
+      context.currentMachinePose = pointResult.machinePose;
+    } else {
+      ++failedCount;
+    }
+  }
+
+  context.laserExecuted = failedCount == 0 && executedCount > 0;
 
   std::ostringstream ss;
-  ss << "Laser mark " << (ok ? "executed" : "failed") << ": " << laser->lastMarkReport();
-  return StepExecutionResult {ok ? StepExecutionStatus::Succeeded : StepExecutionStatus::Failed, ss.str()};
+  ss << "Laser point execution finished: " << executedCount << "/" << context.laserPointResults.size()
+     << " point(s) executed.";
+  if (!lastReport.empty()) {
+    ss << " | " << lastReport;
+  }
+  return StepExecutionResult {context.laserExecuted ? StepExecutionStatus::Succeeded : StepExecutionStatus::Failed,
+                              ss.str()};
 }

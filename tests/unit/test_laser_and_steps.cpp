@@ -10,6 +10,7 @@
 #include "process/RoughPositionStep.h"
 #include "process/WorkflowContext.h"
 #include "program/ProgramManager.h"
+#include "transport/VirtualTransportController.h"
 
 // ---------------------------------------------------------------------------
 // VirtualLaserController
@@ -61,6 +62,26 @@ TEST(VirtualLaserControllerTest, ResetRecoversFromStop) {
 }
 
 // ---------------------------------------------------------------------------
+// VirtualTransportController
+// ---------------------------------------------------------------------------
+
+TEST(VirtualTransportControllerTest, LoadBoardSetsReadySignal) {
+  VirtualTransportController transport;
+  EXPECT_TRUE(transport.loadBoard());
+  EXPECT_TRUE(transport.isBoardReady());
+  EXPECT_EQ(transport.state(), BoardTransportState::BoardReady);
+  EXPECT_TRUE(!transport.lastSignalMessage().empty());
+}
+
+TEST(VirtualTransportControllerTest, UnloadBoardClearsReadySignal) {
+  VirtualTransportController transport;
+  ASSERT_TRUE(transport.loadBoard());
+  EXPECT_TRUE(transport.unloadBoard());
+  EXPECT_TRUE(!transport.isBoardReady());
+  EXPECT_EQ(transport.state(), BoardTransportState::Idle);
+}
+
+// ---------------------------------------------------------------------------
 // LoadBoardStep
 // ---------------------------------------------------------------------------
 
@@ -74,6 +95,41 @@ TEST(ProcessStepTest, LoadBoardAssignsId) {
   const auto result = step.execute(context);
   EXPECT_TRUE(result.status == StepExecutionStatus::Succeeded);
   EXPECT_TRUE(!context.boardId.empty());
+}
+
+TEST(ProcessStepTest, LoadBoardResetsTransientBoardStateByDefault) {
+  LoadBoardStep step;
+
+  WorkflowContext context;
+  context.boardId = "BOARD-LEGACY";
+  context.currentImagePath = "tests/data/demo.png";
+  context.measuredMarks = {
+      {"Mark-A", 100.0, 80.0, 50.0, 50.0, 0.0, 0.9, 0.8, 0.88, 16, "#fff",
+       MarkShape::Rectangle, MarkAlgorithm::ColorBrushTemplate, true},
+  };
+  context.roiInspectionResults.push_back(RoiInspectionResult {});
+  context.aiDetections.push_back(AiDetection {.label = "ok", .confidence = 0.9});
+  context.inspectionDetailsJson = "{}";
+
+  const auto result = step.execute(context);
+  EXPECT_TRUE(result.status == StepExecutionStatus::Succeeded);
+  EXPECT_TRUE(context.currentImagePath.empty());
+  EXPECT_TRUE(context.measuredMarks.empty());
+  EXPECT_TRUE(context.roiInspectionResults.empty());
+  EXPECT_TRUE(context.aiDetections.empty());
+  EXPECT_TRUE(context.inspectionDetailsJson.empty());
+}
+
+TEST(ProcessStepTest, LoadBoardFailsWhenTransportHasNoReadyBoard) {
+  VirtualTransportController transport;
+
+  WorkflowContext context;
+  context.transportController = &transport;
+
+  LoadBoardStep step;
+  const auto result = step.execute(context);
+  EXPECT_TRUE(result.status == StepExecutionStatus::Failed);
+  EXPECT_TRUE(!context.boardReady);
 }
 
 // ---------------------------------------------------------------------------
@@ -120,11 +176,13 @@ TEST(ProcessStepTest, LaserExecuteFailsWithoutPreparedPose) {
 
 TEST(ProcessStepTest, LaserExecuteUsesVirtualController) {
   VirtualLaserController laser;
+  VirtualMotionController motion;
 
   WorkflowContext context;
   context.hasPreparedLaserPose = true;
   context.preparedLaserPose = MechanicalPose {10.0, 20.0, 0.0, 0.0};
   context.laserController = &laser;
+  context.motionController = &motion;
 
   LaserExecuteStep step;
   const auto result = step.execute(context);
@@ -133,10 +191,13 @@ TEST(ProcessStepTest, LaserExecuteUsesVirtualController) {
 }
 
 TEST(ProcessStepTest, LaserExecuteSkipsWhenNoControllerWired) {
+  VirtualMotionController motion;
+
   WorkflowContext context;
   context.hasPreparedLaserPose = true;
   context.preparedLaserPose = MechanicalPose {10.0, 20.0, 0.0, 0.0};
   context.laserController = nullptr;
+  context.motionController = &motion;
 
   LaserExecuteStep step;
   const auto result = step.execute(context);
@@ -162,6 +223,11 @@ TEST(ProcessStepTest, PostLaserVerifyAcceptsExecutedLaser) {
   WorkflowContext context;
   context.laserExecuted = true;
   context.finalDecisionOk = true;
+  context.currentImagePath = "tests/data/demo.png";
+  context.laserPointResults.push_back(LaserPointExecutionResult {
+      "Laser-A", "Inspect-Top", MillimeterPoint {1.0, 2.0}, MechanicalPose {10.0, 20.0, 0.0, 0.0},
+      true, false, false, "DEMO-CODE-001", {}, {},
+  });
 
   PostLaserVerifyStep step;
   const auto result = step.execute(context);
@@ -177,6 +243,11 @@ TEST(ProcessStepTest, PostLaserVerifyDetectsEmergencyStop) {
   context.laserExecuted = true;
   context.finalDecisionOk = true;
   context.laserController = &laser;
+  context.currentImagePath = "tests/data/demo.png";
+  context.laserPointResults.push_back(LaserPointExecutionResult {
+      "Laser-A", "Inspect-Top", MillimeterPoint {1.0, 2.0}, MechanicalPose {10.0, 20.0, 0.0, 0.0},
+      true, false, false, "DEMO-CODE-001", {}, {},
+  });
 
   PostLaserVerifyStep step;
   const auto result = step.execute(context);
@@ -208,6 +279,34 @@ TEST(ProcessStepTest, ImageCaptureUsesExistingPath) {
   // Mark detection may fail but the step itself delivers the path.
   EXPECT_TRUE(result.status == StepExecutionStatus::Succeeded ||
               result.status == StepExecutionStatus::Failed);
+}
+
+TEST(ProcessStepTest, ImageCaptureUsesWholeBoardScanCallbackWhenAvailable) {
+  ProgramManager programManager;
+  ASSERT_TRUE(programManager.createDefaultProgram());
+
+  WorkflowContext context;
+  context.program = programManager.mutableProgram();
+  context.captureWholeBoardScan = []() {
+    BoardScanCaptureResult result;
+    result.mosaicImagePath = "tests/data/demo.png";
+    result.tileRows = 2;
+    result.tileColumns = 3;
+    result.capturedTileCount = 6;
+    result.summary = "board scan ok";
+    return BoardScanCaptureWorkflowResult::success(result, result.summary);
+  };
+  context.measuredMarks = {
+      {"Mark-A", 100.0, 80.0, 50.0, 50.0, 0.0, 0.9, 0.8, 0.88, 16, "#fff",
+       MarkShape::Rectangle, MarkAlgorithm::ColorBrushTemplate, true},
+  };
+
+  ImageCaptureStep step;
+  const auto result = step.execute(context);
+  EXPECT_TRUE(result.status == StepExecutionStatus::Succeeded);
+  EXPECT_EQ(context.currentImagePath, std::string("tests/data/demo.png"));
+  EXPECT_EQ(context.scanTileRows, 2);
+  EXPECT_EQ(context.scanTileColumns, 3);
 }
 
 // ---------------------------------------------------------------------------

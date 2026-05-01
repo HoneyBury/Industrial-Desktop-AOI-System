@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "data": {
+    "laserTemplatePath": "templates/Program-C/Code-C1.tpl",
+    "laserContent": "C1-LASER-240301-0004",
+    "readCodeContent": "READ-C1",
+    "success": true,
+    "programName": "Program-C",
+    "startTime": "2026-03-10T08:18:20",
+    "endTime": "2026-03-10T08:19:10"
+  }
+}

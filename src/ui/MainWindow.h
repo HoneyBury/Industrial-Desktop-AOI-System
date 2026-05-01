@@ -1,11 +1,14 @@
 #pragma once
 
+#include "boardscan/BoardScanTypes.h"
 #include "camera/UsbCamera.h"
 #include "config/AppSettings.h"
+#include "database/DatabaseManager.h"
 #include "laser/VirtualLaserController.h"
 #include "motion/VirtualMotionController.h"
 #include "process/ProcessEngine.h"
 #include "program/ProgramManager.h"
+#include "transport/VirtualTransportController.h"
 #include "vision/CoordinateTransformer.h"
 
 #ifdef AOI_HAS_QT_WIDGETS
@@ -23,6 +26,7 @@ class DataCollectDialog;
 class LogWindow;
 class MarkEditDialog;
 class MotionControlDialog;
+class NewProgramDialog;
 class RunModeWidget;
 class SettingsDialog;
 class QComboBox;
@@ -38,6 +42,15 @@ class QPushButton;
 class QStackedWidget;
 class QTableWidget;
 class QTimer;
+
+class LaserOffsetCalibDialog;
+class LaserSpcBridge;
+class LaserSpcWindow;
+class ProductionHistoryDialog;
+
+namespace HostSpc {
+class SpcWriteManager;
+}
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -95,6 +108,13 @@ private:
   void openMarkEditDialog();
   void openMarkOffsetCalibration();
   void openOriginCalibration();
+  void openLaserOffsetCalibration();
+  void openSpcDashboard();
+  void openProductionHistory();
+  void loadBoardToTrack();
+  void unloadBoardFromTrack();
+  void runWholeBoardScan();
+  [[nodiscard]] BoardScanCaptureWorkflowResult executeWholeBoardScan(bool refreshWorkbenchAfterScan);
   void toggleCodeCameraView();
   void toggleFovOverlay();
   void resetWorkbenchView();
@@ -128,7 +148,10 @@ private:
   void startWorkflowRun();
   void stopWorkflowRun();
   void pauseWorkflowRun();
+  void runSingleWorkflowStep();
   void advanceWorkflowStep();
+  void advanceWorkflowStepInternal(bool allowWhenPaused);
+  void logCalibrationRecord(const CalibrationRecord &record);
 
   [[nodiscard]] QString projectRootPath() const;
   [[nodiscard]] QString projectFilePath(const QString &relativePath) const;
@@ -144,12 +167,18 @@ private:
   UsbCamera usbCamera_;
   VirtualMotionController virtualMotionController_;
   VirtualLaserController virtualLaserController_;
+  VirtualTransportController virtualTransportController_;
   ProgramManager programManager_;
   ProcessEngine processEngine_;
+  DatabaseManager databaseManager_;
   AppSettings appSettings_;
   DataCollectDialog *dataCollectDialog_ {nullptr};
   MarkEditDialog *markEditDialog_ {nullptr};
   MotionControlDialog *motionControlDialog_ {nullptr};
+  NewProgramDialog *newProgramDialog_ {nullptr};
+  LaserSpcWindow *spcWindow_ {nullptr};
+  LaserSpcBridge *spcBridge_ {nullptr};
+  HostSpc::SpcWriteManager *spcWriteManager_ {nullptr};
   LogWindow *logWindow_ {nullptr};
   SettingsDialog *settingsDialog_ {nullptr};
   QTimer *cameraTimer_ {nullptr};

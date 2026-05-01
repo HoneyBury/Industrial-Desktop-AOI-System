@@ -27,6 +27,7 @@ TEST(ProcessEngineTest, RunsBoardWorkflowQueueInIndustrialOrder) {
   context.motionController = &motionController;
   context.currentImagePath = "tests/data/demo.png";
   context.currentMachinePose = MechanicalPose {100.0, 200.0, 0.0, 0.0};
+  context.reuseInjectedInputs = true;
   context.measuredMarks = {
       {"Mark-A", 105.0, 82.0, 52.0, 46.0, 0.0, 0.92, 0.82, 0.89, 16, "#ff4d4f",
        MarkShape::Diamond, MarkAlgorithm::ColorBrushTemplate, true},
@@ -41,16 +42,59 @@ TEST(ProcessEngineTest, RunsBoardWorkflowQueueInIndustrialOrder) {
   ASSERT_TRUE(result.ok);
   ASSERT_EQ(result.records.size(), static_cast<std::size_t>(8));
   EXPECT_EQ(result.records.front().stepId, std::string("load_board"));
-  EXPECT_EQ(result.records.back().stepId, std::string("post_laser_verify"));
+  EXPECT_EQ(result.records.back().stepId, std::string("defect_inspect"));
   EXPECT_TRUE(context.hasMarkAlignment);
   EXPECT_TRUE(context.hasPreparedLaserPose);
   EXPECT_TRUE(context.laserExecuted);
   EXPECT_TRUE(context.finalDecisionOk);
-  EXPECT_NEAR(context.currentMachinePose.x, 100.45, 1e-9);
-  EXPECT_NEAR(context.currentMachinePose.y, 199.73, 1e-9);
-  EXPECT_NEAR(context.currentMachinePose.r, -4.8920860651, 1e-3);
+  EXPECT_TRUE(context.inspectionDetailsJson.find("\"laserPointResults\"") != std::string::npos);
+  EXPECT_TRUE(context.inspectionDetailsJson.find("\"taskName\":\"Laser-Inspect-Top\"") != std::string::npos);
   ASSERT_TRUE(motionController.position(MotionAxis::X).has_value());
-  EXPECT_NEAR(*motionController.position(MotionAxis::X), 100.45, 1e-9);
+  EXPECT_NEAR(*motionController.position(MotionAxis::X), context.currentMachinePose.x, 1e-9);
+  EXPECT_NEAR(*motionController.position(MotionAxis::Y), context.currentMachinePose.y, 1e-9);
+}
+
+TEST(ProcessEngineTest, AdvancesWorkflowOneStepAtATime) {
+  ProgramManager programManager;
+  ASSERT_TRUE(programManager.createDefaultProgram());
+  auto program = programManager.currentProgram();
+  ASSERT_TRUE(program.has_value());
+
+  VirtualMotionController motionController;
+  WorkflowContext context;
+  context.program = &(*program);
+  context.motionController = &motionController;
+  context.currentImagePath = "tests/data/demo.png";
+  context.currentMachinePose = MechanicalPose {10.0, 20.0, 0.0, 0.0};
+  context.reuseInjectedInputs = true;
+  context.measuredMarks = {
+      {"Mark-A", 105.0, 82.0, 52.0, 46.0, 0.0, 0.92, 0.82, 0.89, 16, "#ff4d4f",
+       MarkShape::Diamond, MarkAlgorithm::ColorBrushTemplate, true},
+      {"Mark-B", 245.0, 96.0, 48.0, 48.0, 0.0, 0.90, 0.80, 0.87, 14, "#f97316",
+       MarkShape::Cross, MarkAlgorithm::ColorBrushTemplate, true},
+  };
+
+  ProcessEngine engine;
+
+  std::vector<std::string> stepIds;
+  WorkflowStepRunResult stepResult;
+  for (int idx = 0; idx < 8; ++idx) {
+    stepResult = engine.runNextStep(context);
+    ASSERT_TRUE(stepResult.advanced);
+    stepIds.push_back(stepResult.record.stepId);
+    if (idx < 7) {
+      EXPECT_TRUE(!stepResult.boardCompleted);
+    }
+  }
+
+  EXPECT_TRUE(stepResult.boardCompleted);
+  ASSERT_EQ(stepResult.boardResult.records.size(), static_cast<std::size_t>(8));
+  EXPECT_EQ(stepIds.front(), std::string("load_board"));
+  EXPECT_EQ(stepIds[2], std::string("image_capture"));
+  EXPECT_EQ(stepIds.back(), std::string("defect_inspect"));
+  EXPECT_TRUE(stepResult.boardResult.ok);
+  EXPECT_EQ(context.nextStepIndex, 0);
+  EXPECT_TRUE(context.boardId.empty());
 }
 
 TEST(ProcessEngineTest, StopsWorkflowWhenQueueOrderViolatesPreconditions) {

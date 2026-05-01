@@ -2,7 +2,12 @@
 
 #ifdef AOI_HAS_QT_WIDGETS
 
+#include "boardscan/BoardScanExecutor.h"
+#include "boardscan/BoardScanPlanner.h"
+#include "boardscan/BoardStitcher.h"
+#include "boardscan/BoardViewTransform.h"
 #include "config/AppSettings.h"
+#include "ui/LaserOffsetCalibDialog.h"
 #include "ui/CadGraphicsView.h"
 #include "ui/CadRulerWidget.h"
 #include "ui/CameraCalibDialog.h"
@@ -11,10 +16,16 @@
 #include "ui/MarkEditDialog.h"
 #include "ui/MarkOffsetDialog.h"
 #include "ui/MotionControlDialog.h"
+#include "ui/NewProgramDialog.h"
 #include "ui/OriginCalibDialog.h"
 #include "ui/ProgramEditDialog.h"
 #include "ui/RunModeWidget.h"
 #include "ui/SettingsDialog.h"
+#include "ui/ProductionHistoryDialog.h"
+#include "spc/LaserSpcBridge.h"
+#include "spc/LaserSpcWindow.h"
+#include "SpcWriteManager.h"
+#include "infrastructure/AppConfigService.h"
 #include "ui_MainWindow.h"
 
 #include "vision/CodeReader.h"
@@ -44,6 +55,7 @@
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLabel>
+#include <QLinearGradient>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
@@ -73,6 +85,91 @@ namespace {
 
 constexpr int kWorkbenchImageWidth = 1800;
 constexpr int kWorkbenchImageHeight = 1200;
+
+BoardSceneRect workbenchBoardAreaRect() {
+  return BoardSceneRect {180.0, 120.0, 1320.0, 880.0};
+}
+
+QRectF toQRectF(const BoardSceneRect &rect) { return QRectF(rect.x, rect.y, rect.width, rect.height); }
+
+BoardSceneRect toBoardSceneRect(const QRectF &rect) { return BoardSceneRect {rect.x(), rect.y(), rect.width(), rect.height()}; }
+
+BoardScenePoint toBoardScenePoint(const QPointF &point) { return BoardScenePoint {point.x(), point.y()}; }
+
+std::optional<BoardSceneLayout> currentBoardSceneLayout(const std::optional<ProgramModel> &program) {
+  if (!program.has_value()) {
+    return std::nullopt;
+  }
+
+  const auto layout = BoardViewTransform::computeLayout(program->boardDefinition, workbenchBoardAreaRect());
+  if (!layout.valid) {
+    return std::nullopt;
+  }
+
+  return layout;
+}
+
+MechanicalPose boardScanOriginPose(const ProgramModel &program, const MechanicalPose &fallbackPose) {
+  if (program.runtimeSummary.hasOriginCalibration) {
+    return program.runtimeSummary.originCorrectedPose;
+  }
+  if (program.originCalibration.calibrated) {
+    return program.originCalibration.machineReferencePose;
+  }
+  return fallbackPose;
+}
+
+QImage placeholderScanTile(const QSize &fallbackSize, const FovCapturePose &pose) {
+  const QSize tileSize = fallbackSize.isValid() ? fallbackSize : QSize(640, 360);
+  QImage tile(tileSize, QImage::Format_ARGB32_Premultiplied);
+  tile.fill(QColor("#0f172a"));
+
+  QPainter painter(&tile);
+  painter.setRenderHint(QPainter::Antialiasing, true);
+  QLinearGradient background(0.0, 0.0, tile.width(), tile.height());
+  background.setColorAt(0.0, QColor("#0f172a"));
+  background.setColorAt(1.0, QColor("#1d4ed8"));
+  painter.fillRect(tile.rect(), background);
+  painter.fillRect(tile.rect(), QColor(15, 23, 42, 170));
+  painter.setPen(QPen(QColor("#1e3a5f"), 1));
+  for (int x = 0; x < tile.width(); x += 40) {
+    painter.drawLine(x, 0, x, tile.height());
+  }
+  for (int y = 0; y < tile.height(); y += 40) {
+    painter.drawLine(0, y, tile.width(), y);
+  }
+  painter.setPen(QPen(QColor("#38bdf8"), 3));
+  painter.drawRect(tile.rect().adjusted(8, 8, -8, -8));
+  painter.setPen(QColor("#e2e8f0"));
+  painter.drawText(QRect(24, 24, tile.width() - 48, tile.height() - 48),
+                   Qt::AlignLeft | Qt::TextWordWrap,
+                   QStringLiteral("虚拟 FOV\n行=%1 列=%2\n产品坐标=(%3, %4) mm\n机械坐标=(%5, %6) mm")
+                       .arg(pose.row)
+                       .arg(pose.column)
+                       .arg(pose.productCenterMm.x, 0, 'f', 2)
+                       .arg(pose.productCenterMm.y, 0, 'f', 2)
+                       .arg(pose.machinePose.x, 0, 'f', 2)
+                       .arg(pose.machinePose.y, 0, 'f', 2));
+  return tile;
+}
+
+QImage annotateScanTile(const QImage &source, const FovCapturePose &pose) {
+  QImage tile = source.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+  QPainter painter(&tile);
+  painter.setRenderHint(QPainter::Antialiasing, true);
+  painter.fillRect(QRect(16, 16, 320, 96), QColor(2, 6, 23, 180));
+  painter.setPen(QPen(QColor("#38bdf8"), 3));
+  painter.drawRect(tile.rect().adjusted(10, 10, -10, -10));
+  painter.setPen(QColor("#e2e8f0"));
+  painter.drawText(QRect(32, 32, 280, 72),
+                   Qt::AlignLeft | Qt::TextWordWrap,
+                   QStringLiteral("FOV r%1 c%2\nX=%3  Y=%4")
+                       .arg(pose.row)
+                       .arg(pose.column)
+                       .arg(pose.machinePose.x, 0, 'f', 2)
+                       .arg(pose.machinePose.y, 0, 'f', 2));
+  return tile;
+}
 
 QString markShapeDisplayText(const MarkShape shape) {
   switch (shape) {
@@ -259,10 +356,72 @@ QImage buildWorkbenchImage(const std::optional<ProgramModel> &program, const QSt
                        .arg(fovSize.width())
                        .arg(fovSize.height()));
 
+  const QRectF boardAreaRect = toQRectF(workbenchBoardAreaRect());
+  QRectF boardRect = boardAreaRect.adjusted(80.0, 60.0, -80.0, -60.0);
+  double railHeight = 44.0;
+  double boardLengthMm = 0.0;
+  double boardWidthMm = 0.0;
+  double railWidthMm = 0.0;
+  QString scanOrderText = QStringLiteral("从左到右");
+  if (const auto layout = currentBoardSceneLayout(program); layout.has_value()) {
+    boardLengthMm = program->boardDefinition.boardLengthMm;
+    boardWidthMm = program->boardDefinition.boardWidthMm;
+    railWidthMm = program->boardDefinition.railWidthMm;
+    scanOrderText = program->scanRecipe.scanOrder == ScanOrder::TopToBottom
+                        ? QStringLiteral("从上到下")
+                        : QStringLiteral("从左到右");
+    boardRect = toQRectF(layout->boardRect);
+    railHeight = layout->railHeightPixels;
+  }
+
   painter.setBrush(QColor(14, 116, 144, 28));
   painter.setPen(QPen(QColor("#0ea5e9"), 2));
-  painter.drawRoundedRect(QRectF(180.0, 120.0, 1320.0, 880.0), 18.0, 18.0);
-  painter.drawText(QRectF(210.0, 136.0, 300.0, 28.0), QStringLiteral("整板拼接区"));
+  painter.drawRoundedRect(boardAreaRect, 18.0, 18.0);
+  painter.drawText(QRectF(210.0, 136.0, 380.0, 28.0), QStringLiteral("整板拼接区 / 扫描工作台"));
+
+  painter.setBrush(QColor(71, 85, 105, 80));
+  painter.setPen(Qt::NoPen);
+  painter.drawRoundedRect(QRectF(boardRect.left(), boardRect.top() - railHeight - 18.0, boardRect.width(), railHeight), 10.0, 10.0);
+  painter.drawRoundedRect(QRectF(boardRect.left(), boardRect.bottom() + 18.0, boardRect.width(), railHeight), 10.0, 10.0);
+
+  painter.setBrush(QColor(15, 23, 42, 160));
+  painter.setPen(QPen(QColor("#38bdf8"), 3));
+  painter.drawRoundedRect(boardRect, 14.0, 14.0);
+  const QString boardImagePath =
+      program.has_value() ? QString::fromStdString(program->runtimeSummary.wholeBoardImagePath) : QString();
+  if (!boardImagePath.isEmpty()) {
+    const QImage boardImage(boardImagePath);
+    if (!boardImage.isNull()) {
+      painter.save();
+      painter.setClipRect(boardRect.adjusted(4.0, 4.0, -4.0, -4.0));
+      painter.drawImage(boardRect, boardImage);
+      painter.restore();
+    }
+  }
+
+  if (program.has_value() && program->runtimeSummary.scanTileRows > 0 && program->runtimeSummary.scanTileColumns > 0) {
+    painter.setPen(QPen(QColor(250, 204, 21, 120), 1, Qt::DashLine));
+    const double tileWidth = boardRect.width() / static_cast<double>(program->runtimeSummary.scanTileColumns);
+    const double tileHeight = boardRect.height() / static_cast<double>(program->runtimeSummary.scanTileRows);
+    for (int column = 1; column < program->runtimeSummary.scanTileColumns; ++column) {
+      const double x = boardRect.left() + tileWidth * static_cast<double>(column);
+      painter.drawLine(QPointF(x, boardRect.top()), QPointF(x, boardRect.bottom()));
+    }
+    for (int row = 1; row < program->runtimeSummary.scanTileRows; ++row) {
+      const double y = boardRect.top() + tileHeight * static_cast<double>(row);
+      painter.drawLine(QPointF(boardRect.left(), y), QPointF(boardRect.right(), y));
+    }
+  }
+
+  painter.setPen(QColor("#e2e8f0"));
+  painter.drawText(boardRect.adjusted(20.0, 16.0, -20.0, -20.0),
+                   QStringLiteral("板轮廓\n长=%1 mm 宽=%2 mm\n轨道=%3 mm\n扫描顺序=%4\n扫描网格=%5 x %6")
+                       .arg(boardLengthMm, 0, 'f', 1)
+                       .arg(boardWidthMm, 0, 'f', 1)
+                       .arg(railWidthMm, 0, 'f', 1)
+                       .arg(scanOrderText)
+                       .arg(program.has_value() ? program->runtimeSummary.scanTileRows : 0)
+                       .arg(program.has_value() ? program->runtimeSummary.scanTileColumns : 0));
 
   painter.setBrush(QColor(34, 197, 94, 36));
   painter.setPen(QPen(QColor("#22c55e"), 2));
@@ -409,6 +568,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui_(new Ui::MainW
   connect(workflowTimer_, &QTimer::timeout, this, &MainWindow::advanceWorkflowStep);
 
   appSettings_ = AppSettingsManager::load(projectFilePath(QStringLiteral("config/app_settings.json")).toStdString());
+  const QString runtimeDatabasePath = projectFilePath(QStringLiteral("data/aoi_runtime.db"));
+  QDir().mkpath(QFileInfo(runtimeDatabasePath).absolutePath());
+  const auto databaseOpenResult = databaseManager_.open(runtimeDatabasePath.toStdString());
 
   logWindow_ = new LogWindow();
   if (appSettings_.persistLogs) {
@@ -417,6 +579,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui_(new Ui::MainW
 
   buildMenus();
   buildCentralUi();
+
+  // Initialize SPC write manager and bridge for laser-data submission.
+  {
+    LaserSpc::Infrastructure::AppConfigService spcConfig;
+    auto spcSettings = spcConfig.settings();
+    spcSettings.useMySql = true;
+    spcSettings.allowMockFallback = true;
+    spcWriteManager_ = new HostSpc::SpcWriteManager(spcSettings, this);
+    spcBridge_ = new LaserSpcBridge(this);
+    spcBridge_->setWriteManager(spcWriteManager_);
+  }
+
   createDefaultProgram();
   refreshCameraState();
   refreshStatusSummary();
@@ -428,11 +602,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui_(new Ui::MainW
   appendLog(QStringLiteral("主界面已切换为 CAD 式预览工位布局。"));
   appendLog(QStringLiteral("左侧支持中键拖拽、滚轮缩放、左键框选生成 Mark/ROI。"));
   appendLog(QStringLiteral("可通过右上角按钮切换至运行模式。"));
+  appendLog(databaseOpenResult
+                ? QStringLiteral("运行追溯数据库已就绪：%1").arg(runtimeDatabasePath)
+                : QStringLiteral("运行追溯数据库打开失败：%1").arg(QString::fromStdString(databaseOpenResult.message)));
 }
 
 MainWindow::~MainWindow() {
   stopCameraPreview();
   stopWorkflowRun();
+  delete spcWindow_;
+  databaseManager_.close();
   delete ui_;
 }
 
@@ -453,10 +632,13 @@ void MainWindow::buildMenus() {
 
   auto *motionMenu = menuBar()->addMenu(QStringLiteral("运控"));
   auto *openMotionAction = motionMenu->addAction(QStringLiteral("打开虚拟运控面板"));
+  auto *loadBoardAction = motionMenu->addAction(QStringLiteral("进板"));
+  auto *unloadBoardAction = motionMenu->addAction(QStringLiteral("出板"));
 
   auto *calibrationMenu = menuBar()->addMenu(QStringLiteral("校正"));
   auto *markOffsetAction = calibrationMenu->addAction(QStringLiteral("Mark 点校正"));
   auto *originCalibAction = calibrationMenu->addAction(QStringLiteral("机械原点校正"));
+  auto *laserOffsetAction = calibrationMenu->addAction(QStringLiteral("激光偏移校正"));
 
   auto *viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
   auto *openLogAction = viewMenu->addAction(QStringLiteral("运行日志"));
@@ -464,6 +646,7 @@ void MainWindow::buildMenus() {
   auto *toolsMenu = menuBar()->addMenu(QStringLiteral("工具"));
   auto *dataCollectAction = toolsMenu->addAction(QStringLiteral("数据集采集"));
   auto *markEditAction = toolsMenu->addAction(QStringLiteral("Mark 点编辑器"));
+  auto *wholeBoardScanAction = toolsMenu->addAction(QStringLiteral("执行整板扫描"));
 
   connect(newProgramAction, &QAction::triggered, this, &MainWindow::createDefaultProgram);
   connect(openProgramAction, &QAction::triggered, this, &MainWindow::openProgram);
@@ -474,11 +657,15 @@ void MainWindow::buildMenus() {
   connect(startPreviewAction, &QAction::triggered, this, &MainWindow::startCameraPreview);
   connect(stopPreviewAction, &QAction::triggered, this, &MainWindow::stopCameraPreview);
   connect(openMotionAction, &QAction::triggered, this, &MainWindow::openMotionPanel);
+  connect(loadBoardAction, &QAction::triggered, this, &MainWindow::loadBoardToTrack);
+  connect(unloadBoardAction, &QAction::triggered, this, &MainWindow::unloadBoardFromTrack);
   connect(markOffsetAction, &QAction::triggered, this, &MainWindow::openMarkOffsetCalibration);
   connect(originCalibAction, &QAction::triggered, this, &MainWindow::openOriginCalibration);
+  connect(laserOffsetAction, &QAction::triggered, this, &MainWindow::openLaserOffsetCalibration);
   connect(openLogAction, &QAction::triggered, this, &MainWindow::openLogWindow);
   connect(dataCollectAction, &QAction::triggered, this, &MainWindow::openDataCollect);
   connect(markEditAction, &QAction::triggered, this, &MainWindow::openMarkEditDialog);
+  connect(wholeBoardScanAction, &QAction::triggered, this, &MainWindow::runWholeBoardScan);
 
   auto *toolBar = addToolBar(QStringLiteral("主工具栏"));
   toolBar->setMovable(false);
@@ -555,8 +742,25 @@ void MainWindow::buildCentralUi() {
       "QPushButton:hover { background: #2563eb; }"));
   switchToEditorButton_->setVisible(false);
 
+  // SPC dashboard button
+  auto *spcButton = new QPushButton(QStringLiteral("SPC 看板"), headerFrame);
+  spcButton->setStyleSheet(QStringLiteral(
+      "QPushButton { background: #7c3aed; color: #f8fafc; border: 1px solid #8b5cf6; border-radius: 8px; "
+      "  padding: 8px 18px; min-height: 30px; font-weight: 700; font-size: 12px; }"
+      "QPushButton:hover { background: #8b5cf6; }"));
+  connect(spcButton, &QPushButton::clicked, this, &MainWindow::openSpcDashboard);
+
+  auto *historyButton = new QPushButton(QStringLiteral("生产历史"), headerFrame);
+  historyButton->setStyleSheet(QStringLiteral(
+      "QPushButton { background: #0f766e; color: #f8fafc; border: 1px solid #14b8a6; border-radius: 8px; "
+      "  padding: 8px 18px; min-height: 30px; font-weight: 700; font-size: 12px; }"
+      "QPushButton:hover { background: #14b8a6; }"));
+  connect(historyButton, &QPushButton::clicked, this, &MainWindow::openProductionHistory);
+
   headerLayout->addWidget(switchToRunButton_);
   headerLayout->addWidget(switchToEditorButton_);
+  headerLayout->addWidget(spcButton);
+  headerLayout->addWidget(historyButton);
   headerLayout->addWidget(statusSummaryValueLabel_);
   rootLayout->addWidget(headerFrame);
 
@@ -634,6 +838,7 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   auto *fitViewButton = new QPushButton(QStringLiteral("适配视图"), toolbarFrame);
   auto *startPreviewButton = new QPushButton(QStringLiteral("开始实时采图"), toolbarFrame);
   auto *stopPreviewButton = new QPushButton(QStringLiteral("停止采图"), toolbarFrame);
+  auto *wholeBoardScanButton = new QPushButton(QStringLiteral("整板扫描"), toolbarFrame);
   auto *markCalibButton = new QPushButton(QStringLiteral("Mark 校正"), toolbarFrame);
   auto *originCalibButton = new QPushButton(QStringLiteral("原点校正"), toolbarFrame);
   toggleCodeCameraViewButton_ = new QPushButton(QStringLiteral("读码相机视图"), toolbarFrame);
@@ -657,6 +862,7 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   buttonRowTop->addWidget(fitViewButton);
   buttonRowTop->addWidget(startPreviewButton);
   buttonRowTop->addWidget(stopPreviewButton);
+  buttonRowTop->addWidget(wholeBoardScanButton);
   buttonRowTop->addStretch();
   buttonRowTop->addWidget(settingsButton);
 
@@ -718,6 +924,7 @@ void MainWindow::buildLeftWorkbench(QBoxLayout *parentLayout) {
   connect(fitViewButton, &QPushButton::clicked, this, &MainWindow::resetWorkbenchView);
   connect(startPreviewButton, &QPushButton::clicked, this, &MainWindow::startCameraPreview);
   connect(stopPreviewButton, &QPushButton::clicked, this, &MainWindow::stopCameraPreview);
+  connect(wholeBoardScanButton, &QPushButton::clicked, this, &MainWindow::runWholeBoardScan);
   connect(markCalibButton, &QPushButton::clicked, this, &MainWindow::openMarkOffsetCalibration);
   connect(originCalibButton, &QPushButton::clicked, this, &MainWindow::openOriginCalibration);
   connect(toggleCodeCameraViewButton_, &QPushButton::clicked, this, &MainWindow::toggleCodeCameraView);
@@ -1124,34 +1331,38 @@ void MainWindow::refreshTemplatePreviewSummary() {
   }
 
   lines << QStringLiteral("模板缓存：%1")
-               .arg(currentProgram->templateCachePath.empty()
+               .arg(currentProgram->runtimeSummary.templateCachePath.empty()
                         ? QStringLiteral("暂无")
-                        : QString::fromStdString(currentProgram->templateCachePath));
+                        : QString::fromStdString(currentProgram->runtimeSummary.templateCachePath));
   lines << QStringLiteral("匹配结果：%1")
-               .arg(currentProgram->latestTemplateMatchSummary.empty()
+               .arg(currentProgram->runtimeSummary.latestTemplateMatchSummary.empty()
                         ? QStringLiteral("暂无")
-                        : QString::fromStdString(currentProgram->latestTemplateMatchSummary));
+                        : QString::fromStdString(currentProgram->runtimeSummary.latestTemplateMatchSummary));
+  lines << QStringLiteral("整板扫描：%1")
+               .arg(currentProgram->runtimeSummary.lastBoardScanSummary.empty()
+                        ? QStringLiteral("暂无")
+                        : QString::fromStdString(currentProgram->runtimeSummary.lastBoardScanSummary));
 
-  if (currentProgram->hasMarkCalibration) {
+  if (currentProgram->runtimeSummary.hasMarkCalibration) {
     calibrationLines << QStringLiteral("Mark 校正：dX=%1 mm, dY=%2 mm, dR=%3°")
-                            .arg(currentProgram->markCalibrationOffsetXmm, 0, 'f', 4)
-                            .arg(currentProgram->markCalibrationOffsetYmm, 0, 'f', 4)
-                            .arg(currentProgram->markCalibrationRotationDegrees, 0, 'f', 3);
+                            .arg(currentProgram->runtimeSummary.markCalibrationOffsetXmm, 0, 'f', 4)
+                            .arg(currentProgram->runtimeSummary.markCalibrationOffsetYmm, 0, 'f', 4)
+                            .arg(currentProgram->runtimeSummary.markCalibrationRotationDegrees, 0, 'f', 3);
   }
 
-  if (currentProgram->hasOriginCalibration) {
+  if (currentProgram->runtimeSummary.hasOriginCalibration) {
     calibrationLines << QStringLiteral("原点补偿：X=%1, Y=%2, Z=%3, R=%4")
-                            .arg(currentProgram->originCorrectedX, 0, 'f', 3)
-                            .arg(currentProgram->originCorrectedY, 0, 'f', 3)
-                            .arg(currentProgram->originCorrectedZ, 0, 'f', 3)
-                            .arg(currentProgram->originCorrectedR, 0, 'f', 3);
+                            .arg(currentProgram->runtimeSummary.originCorrectedPose.x, 0, 'f', 3)
+                            .arg(currentProgram->runtimeSummary.originCorrectedPose.y, 0, 'f', 3)
+                            .arg(currentProgram->runtimeSummary.originCorrectedPose.z, 0, 'f', 3)
+                            .arg(currentProgram->runtimeSummary.originCorrectedPose.r, 0, 'f', 3);
   }
 
   templatePreviewValueLabel_->setText(lines.join(QStringLiteral("\n")));
 
   if (templateCachePreviewLabel_ != nullptr) {
-    if (!currentProgram->templateCachePath.empty()) {
-      const QString cachePath = QString::fromStdString(currentProgram->templateCachePath);
+    if (!currentProgram->runtimeSummary.templateCachePath.empty()) {
+      const QString cachePath = QString::fromStdString(currentProgram->runtimeSummary.templateCachePath);
       const QPixmap pixmap(cachePath);
       if (!pixmap.isNull()) {
         templateCachePreviewLabel_->setText(QString());
@@ -1216,7 +1427,7 @@ void MainWindow::refreshProgramWidgets() {
       markTableWidget_->setItem(row, 5, new QTableWidgetItem(QString::number(mark.score, 'f', 3)));
       markTableWidget_->setItem(
           row, 6,
-          new QTableWidgetItem(QStringLiteral("(%1, %2)").arg(mark.x, 0, 'f', 1).arg(mark.y, 0, 'f', 1)));
+          new QTableWidgetItem(QStringLiteral("(%1, %2) mm").arg(mark.x, 0, 'f', 1).arg(mark.y, 0, 'f', 1)));
       markTableWidget_->setItem(row, 7, new QTableWidgetItem(mark.score >= mark.minimumScore ? QStringLiteral("通过")
                                                                                               : QStringLiteral("待调整")));
     }
@@ -1230,11 +1441,11 @@ void MainWindow::refreshProgramWidgets() {
       roiTableWidget_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(roi.name)));
       roiTableWidget_->setItem(row, 1, new QTableWidgetItem(roiShapeDisplayText(roi.shape)));
       roiTableWidget_->setItem(row, 2, new QTableWidgetItem(QString::number(roi.threshold, 'f', 3)));
-      roiTableWidget_->setItem(row, 3, new QTableWidgetItem(QString::number(roi.x, 'f', 1)));
-      roiTableWidget_->setItem(row, 4, new QTableWidgetItem(QString::number(roi.y, 'f', 1)));
+      roiTableWidget_->setItem(row, 3, new QTableWidgetItem(QStringLiteral("%1 mm").arg(roi.x, 0, 'f', 1)));
+      roiTableWidget_->setItem(row, 4, new QTableWidgetItem(QStringLiteral("%1 mm").arg(roi.y, 0, 'f', 1)));
       roiTableWidget_->setItem(
           row, 5,
-          new QTableWidgetItem(QStringLiteral("%1 x %2").arg(roi.width, 0, 'f', 1).arg(roi.height, 0, 'f', 1)));
+          new QTableWidgetItem(QStringLiteral("%1 x %2 mm").arg(roi.width, 0, 'f', 1).arg(roi.height, 0, 'f', 1)));
       roiTableWidget_->setItem(row, 6, new QTableWidgetItem(roi.enabled ? QStringLiteral("启用") : QStringLiteral("停用")));
     }
   }
@@ -1261,13 +1472,18 @@ void MainWindow::refreshWorkbenchScene(const bool keepView) {
   workbenchPixmapItem_->setPos(0.0, 0.0);
   workbenchScene_->setSceneRect(-120.0, -80.0, image.width() + 240.0, image.height() + 160.0);
 
-  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+  if (const auto currentProgram = programManager_.currentProgram();
+      currentProgram.has_value() && currentBoardSceneLayout(currentProgram).has_value()) {
+    const auto layout = *currentBoardSceneLayout(currentProgram);
     for (int index = 0; index < static_cast<int>(currentProgram->rois.size()); ++index) {
       const auto &roi = currentProgram->rois[static_cast<std::size_t>(index)];
-      auto *item = new ProgramShapeItem(ProgramShapeItem::Domain::Roi, index, QRectF(0.0, 0.0, roi.width, roi.height),
+      const auto sceneRect =
+          BoardViewTransform::boardToSceneTopLeftRect(layout, MillimeterPoint {roi.x, roi.y}, roi.width, roi.height);
+      auto *item = new ProgramShapeItem(ProgramShapeItem::Domain::Roi, index,
+                                        QRectF(0.0, 0.0, sceneRect.width, sceneRect.height),
                                         QString::fromStdString(roi.name), QColor("#22c55e"),
                                         MarkShape::Rectangle, roi.shape);
-      item->setPos(roi.x, roi.y);
+      item->setPos(sceneRect.x, sceneRect.y);
       item->setRotation(roi.rotation);
       item->setSelectionHandler([this](const ProgramShapeItem::Domain, const int itemIndex) { selectRoiIndex(itemIndex); });
       item->setMoveFinishedHandler([this](const ProgramShapeItem::Domain, const int itemIndex, const QPointF &position) {
@@ -1282,11 +1498,13 @@ void MainWindow::refreshWorkbenchScene(const bool keepView) {
 
     for (int index = 0; index < static_cast<int>(currentProgram->marks.size()); ++index) {
       const auto &mark = currentProgram->marks[static_cast<std::size_t>(index)];
+      const auto sceneRect = BoardViewTransform::boardToSceneCenteredRect(
+          layout, MillimeterPoint {mark.x, mark.y}, mark.width, mark.height);
       auto *item =
           new ProgramShapeItem(ProgramShapeItem::Domain::Mark, index,
-                               QRectF(-mark.width / 2.0, -mark.height / 2.0, mark.width, mark.height),
+                               QRectF(-sceneRect.width / 2.0, -sceneRect.height / 2.0, sceneRect.width, sceneRect.height),
                                QString::fromStdString(mark.name), colorFromMark(mark), mark.shape);
-      item->setPos(mark.x, mark.y);
+      item->setPos(sceneRect.x + sceneRect.width / 2.0, sceneRect.y + sceneRect.height / 2.0);
       item->setRotation(mark.rotation);
       item->setSelectionHandler([this](const ProgramShapeItem::Domain, const int itemIndex) { selectMarkIndex(itemIndex); });
       item->setMoveFinishedHandler([this](const ProgramShapeItem::Domain, const int itemIndex, const QPointF &position) {
@@ -1300,7 +1518,16 @@ void MainWindow::refreshWorkbenchScene(const bool keepView) {
     }
   }
 
-  const QRectF fovRect = workbenchFovRect(lastFrameSize_);
+  QRectF fovRect = workbenchFovRect(lastFrameSize_);
+  if (const auto currentProgram = programManager_.currentProgram();
+      currentProgram.has_value() && currentBoardSceneLayout(currentProgram).has_value()) {
+    const auto layout = *currentBoardSceneLayout(currentProgram);
+    const auto fovSceneRect = BoardViewTransform::boardToSceneTopLeftRect(
+        layout, MillimeterPoint {0.0, 0.0}, currentProgram->scanRecipe.fovWidthMm, currentProgram->scanRecipe.fovHeightMm);
+    if (fovSceneRect.width > 0.0 && fovSceneRect.height > 0.0) {
+      fovRect = toQRectF(fovSceneRect);
+    }
+  }
 
   auto *fovBackdrop = workbenchScene_->addRect(
       fovRect.adjusted(6.0, 6.0, -6.0, -6.0),
@@ -1420,15 +1647,44 @@ void MainWindow::updateProgram(const std::function<void(ProgramModel &)> &update
 }
 
 void MainWindow::createDefaultProgram() {
+  if (newProgramDialog_ == nullptr) {
+    newProgramDialog_ = new NewProgramDialog(this);
+  }
+
+  BoardDefinition initialBoardDefinition;
+  ScanRecipe initialScanRecipe;
+  QString initialProgramName = QStringLiteral("board_program");
+  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+    initialBoardDefinition = currentProgram->boardDefinition;
+    initialScanRecipe = currentProgram->scanRecipe;
+    initialProgramName = QString::fromStdString(currentProgram->name);
+  }
+
+  newProgramDialog_->setInitialProgramName(initialProgramName);
+  newProgramDialog_->setInitialBoardDefinition(initialBoardDefinition);
+  newProgramDialog_->setInitialScanRecipe(initialScanRecipe);
+  if (newProgramDialog_->exec() != QDialog::Accepted) {
+    appendLog(QStringLiteral("已取消新建程序。"));
+    return;
+  }
+
   const auto result = programManager_.createDefaultProgram();
   selectedMarkIndex_ = -1;
   selectedRoiIndex_ = -1;
   if (result) {
+    updateProgram([this](ProgramModel &program) {
+      program.name = newProgramDialog_->programName().isEmpty()
+                         ? "board_program"
+                         : newProgramDialog_->programName().toStdString();
+      program.boardDefinition = newProgramDialog_->boardDefinition();
+      program.scanRecipe = newProgramDialog_->scanRecipe();
+    });
     appendLog(QStringLiteral("已新建默认程序。"));
   } else {
     appendLog(QStringLiteral("新建默认程序失败：%1").arg(QString::fromStdString(result.message)));
   }
   refreshProgramWidgets();
+  resetWorkbenchView();
 }
 
 void MainWindow::openProgram() {
@@ -1452,6 +1708,7 @@ void MainWindow::openProgram() {
     appendLog(QStringLiteral("程序打开失败：%1").arg(QString::fromStdString(result.message)));
   }
   refreshProgramWidgets();
+  resetWorkbenchView();
 }
 
 void MainWindow::saveCurrentProgram() {
@@ -1510,6 +1767,21 @@ void MainWindow::openMotionPanel() {
   motionControlDialog_->activateWindow();
 }
 
+void MainWindow::openSpcDashboard() {
+  if (spcWindow_ == nullptr) {
+    spcWindow_ = new LaserSpcWindow();
+  }
+
+  spcWindow_->show();
+  spcWindow_->raise();
+  spcWindow_->activateWindow();
+}
+
+void MainWindow::openProductionHistory() {
+  ProductionHistoryDialog dialog(&databaseManager_, this);
+  dialog.exec();
+}
+
 void MainWindow::openMarkOffsetCalibration() {
   if (!usbCamera_.isOpened()) {
     startCameraPreview();
@@ -1524,11 +1796,16 @@ void MainWindow::openMarkOffsetCalibration() {
   connect(&dialog, &MarkOffsetDialog::compensationApplied, this,
           [this](const double deltaXmm, const double deltaYmm, const double rotationDegrees) {
             updateProgram([deltaXmm, deltaYmm, rotationDegrees](ProgramModel &program) {
-              program.hasMarkCalibration = true;
-              program.markCalibrationOffsetXmm = deltaXmm;
-              program.markCalibrationOffsetYmm = deltaYmm;
-              program.markCalibrationRotationDegrees = rotationDegrees;
+              program.runtimeSummary.hasMarkCalibration = true;
+              program.runtimeSummary.markCalibrationOffsetXmm = deltaXmm;
+              program.runtimeSummary.markCalibrationOffsetYmm = deltaYmm;
+              program.runtimeSummary.markCalibrationRotationDegrees = rotationDegrees;
             });
+            CalibrationRecord record;
+            record.calibrationType = "mark_alignment";
+            record.notes = "dX=" + std::to_string(deltaXmm) + ", dY=" + std::to_string(deltaYmm) +
+                           ", dR=" + std::to_string(rotationDegrees);
+            logCalibrationRecord(record);
             MechanicalPose pose = currentMechanicalPose();
             pose.x -= deltaXmm;
             pose.y -= deltaYmm;
@@ -1555,16 +1832,252 @@ void MainWindow::openOriginCalibration() {
   connect(&dialog, &OriginCalibDialog::correctedPoseApplied, this,
           [this](const double x, const double y, const double z, const double r) {
             updateProgram([x, y, z, r](ProgramModel &program) {
-              program.hasOriginCalibration = true;
-              program.originCorrectedX = x;
-              program.originCorrectedY = y;
-              program.originCorrectedZ = z;
-              program.originCorrectedR = r;
+              program.originCalibration.calibrated = true;
+              program.originCalibration.machineReferencePose = MechanicalPose {x, y, z, r};
+              program.runtimeSummary.hasOriginCalibration = true;
+              program.runtimeSummary.originCorrectedPose = MechanicalPose {x, y, z, r};
             });
+            CalibrationRecord record;
+            record.calibrationType = "origin";
+            record.originX = x;
+            record.originY = y;
+            record.originR = r;
+            record.notes = "Origin compensation applied from UI";
+            logCalibrationRecord(record);
             applyMechanicalPose(MechanicalPose {x, y, z, r}, QStringLiteral("原点校正补偿"));
             refreshTemplatePreviewSummary();
           });
   dialog.exec();
+}
+
+void MainWindow::openLaserOffsetCalibration() {
+  if (!usbCamera_.isOpened()) {
+    startCameraPreview();
+  }
+
+  LaserOffsetCalibDialog dialog(this);
+  dialog.setFrameProvider([this] { return currentCalibrationFrame(); },
+                          [this] { return usbCamera_.isOpened(); });
+
+  const auto currentProgram = programManager_.currentProgram();
+  PixelPoint opticalCenter {0.0, 0.0};
+  if (currentProgram.has_value()) {
+    if (selectedMarkIndex_ >= 0 && selectedMarkIndex_ < static_cast<int>(currentProgram->marks.size())) {
+      const auto &selectedMark = currentProgram->marks[static_cast<std::size_t>(selectedMarkIndex_)];
+      opticalCenter = PixelPoint {selectedMark.x, selectedMark.y};
+    }
+    dialog.setCalibrationContext(currentProgram->pixelScaleCalibration, opticalCenter);
+  }
+
+  connect(&dialog, &LaserOffsetCalibDialog::calibrationApplied, this,
+          [this](const LaserOffsetCalibration &calibration) {
+            updateProgram([calibration](ProgramModel &program) {
+              program.laserOffsetCalibration = calibration;
+              program.runtimeSummary.hasLaserOffsetCalibration = true;
+            });
+            CalibrationRecord record;
+            record.calibrationType = "laser_offset";
+            record.laserOffsetDx = calibration.cameraToLaserDxMm;
+            record.laserOffsetDy = calibration.cameraToLaserDyMm;
+            record.notes = "Laser offset calibration from dialog";
+            logCalibrationRecord(record);
+            appendLog(QStringLiteral("激光偏移校正完成：dX=%1 mm, dY=%2 mm")
+                          .arg(calibration.cameraToLaserDxMm, 0, 'f', 4)
+                          .arg(calibration.cameraToLaserDyMm, 0, 'f', 4));
+            refreshTemplatePreviewSummary();
+          });
+
+  dialog.exec();
+}
+
+void MainWindow::loadBoardToTrack() {
+  if (virtualTransportController_.loadBoard()) {
+    appendLog(QStringLiteral("进板完成：%1").arg(QString::fromStdString(virtualTransportController_.lastSignalMessage())));
+  } else {
+    appendLog(QStringLiteral("进板失败。"));
+  }
+  refreshStatusSummary();
+}
+
+void MainWindow::unloadBoardFromTrack() {
+  if (virtualTransportController_.unloadBoard()) {
+    appendLog(QStringLiteral("出板完成：%1").arg(QString::fromStdString(virtualTransportController_.lastSignalMessage())));
+  } else {
+    appendLog(QStringLiteral("出板失败。"));
+  }
+  refreshStatusSummary();
+}
+
+BoardScanCaptureWorkflowResult MainWindow::executeWholeBoardScan(const bool refreshWorkbenchAfterScan) {
+  const auto currentProgram = programManager_.currentProgram();
+  if (!currentProgram.has_value()) {
+    return BoardScanCaptureWorkflowResult::failure("Current program is missing.");
+  }
+
+  if (!virtualTransportController_.isBoardReady()) {
+    return BoardScanCaptureWorkflowResult::failure("Board is not ready. Please load a board first.");
+  }
+
+  if (!usbCamera_.isOpened()) {
+    startCameraPreview();
+  }
+
+  const MechanicalPose originPose = boardScanOriginPose(*currentProgram, currentMechanicalPose());
+  BoardScanPlanner planner;
+  const auto planResult = planner.plan(currentProgram->boardDefinition, currentProgram->scanRecipe, originPose);
+  if (!planResult) {
+    return BoardScanCaptureWorkflowResult::failure(planResult.message);
+  }
+
+  const QString scanRoot = projectFilePath(QStringLiteral("data/board_scans"));
+  QDir().mkpath(scanRoot);
+  const QString sanitizedProgramName =
+      QString::fromStdString(currentProgram->name).trimmed().isEmpty()
+          ? QStringLiteral("board_program")
+          : QString::fromStdString(currentProgram->name).trimmed().replace(' ', '_');
+  const QString scanSessionDir =
+      QDir(scanRoot).filePath(QStringLiteral("%1_%2")
+                                  .arg(sanitizedProgramName)
+                                  .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"))));
+  QDir().mkpath(scanSessionDir);
+
+  BoardScanExecutor executor;
+  const auto executeResult = executor.execute(planResult.value, virtualMotionController_,
+                                              [this, scanSessionDir](const FovCapturePose &pose) -> std::string {
+                                                QImage tile = lastCameraFrameImage_;
+                                                if (tile.isNull()) {
+                                                  tile = placeholderScanTile(lastFrameSize_, pose);
+                                                } else {
+                                                  tile = annotateScanTile(tile, pose);
+                                                }
+
+                                                const QString tilePath =
+                                                    QDir(scanSessionDir)
+                                                        .filePath(QStringLiteral("tile_r%1_c%2_%3.png")
+                                                                      .arg(pose.row)
+                                                                      .arg(pose.column)
+                                                                      .arg(pose.index));
+                                                if (!tile.save(tilePath)) {
+                                                  return {};
+                                                }
+                                                return tilePath.toStdString();
+                                              });
+  if (!executeResult) {
+    return BoardScanCaptureWorkflowResult::failure(executeResult.message);
+  }
+
+  QImage firstTile(QString::fromStdString(executeResult.value.front().imagePath));
+  if (firstTile.isNull()) {
+    firstTile = placeholderScanTile(lastFrameSize_, executeResult.value.front().pose);
+  }
+
+  const QString mosaicPath = QDir(scanSessionDir).filePath(QStringLiteral("whole_board_mosaic.png"));
+
+  BoardStitcher stitcher;
+  const auto layoutResult = stitcher.buildLayout(planResult.value, firstTile.width(), firstTile.height());
+  if (!layoutResult) {
+    return BoardScanCaptureWorkflowResult::failure(layoutResult.message);
+  }
+
+#ifdef AOI_HAS_OPENCV
+  const auto stitchResult = stitcher.stitch(layoutResult.value, executeResult.value, mosaicPath.toStdString());
+  if (stitchResult.capturedTileCount > 0) {
+    const QString summary =
+        QStringLiteral("整板扫描完成（OpenCV 拼接）：%1 张 FOV，%2 行 x %3 列，输出=%4")
+            .arg(stitchResult.capturedTileCount)
+            .arg(planResult.value.tileRows)
+            .arg(planResult.value.tileColumns)
+            .arg(mosaicPath);
+    return BoardScanCaptureWorkflowResult::success(
+        BoardScanCaptureResult {stitchResult.mosaicImagePath, stitchResult.tileRows,
+                                stitchResult.tileColumns, stitchResult.capturedTileCount,
+                                summary.toStdString(), executeResult.value},
+        summary.toStdString());
+  }
+  // OpenCV stitch failed; fall through to QPainter path.
+  appendLog(QStringLiteral("OpenCV 拼接失败，回退到 QPainter 拼接：%1")
+                .arg(QString::fromStdString(stitchResult.summary)));
+#endif
+
+  // QPainter fallback path (also used when OpenCV is unavailable).
+  {
+    QImage mosaic(layoutResult.value.mosaicPixelWidth, layoutResult.value.mosaicPixelHeight,
+                  QImage::Format_ARGB32_Premultiplied);
+    mosaic.fill(QColor("#020617"));
+    QPainter painter(&mosaic);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    for (const auto &placement : layoutResult.value.placements) {
+      const QString tilePath =
+          QString::fromStdString(executeResult.value[static_cast<std::size_t>(placement.pose.index)].imagePath);
+      QImage tile(tilePath);
+      if (tile.isNull()) {
+        tile = placeholderScanTile(QSize(placement.pixelWidth, placement.pixelHeight), placement.pose);
+      }
+      painter.drawImage(QRect(placement.pixelX, placement.pixelY, placement.pixelWidth, placement.pixelHeight), tile);
+      painter.setPen(QPen(QColor("#facc15"), 1, Qt::DashLine));
+      painter.drawRect(QRect(placement.pixelX, placement.pixelY, placement.pixelWidth, placement.pixelHeight));
+      painter.setPen(QColor("#e2e8f0"));
+      painter.drawText(QRect(placement.pixelX + 10, placement.pixelY + 10, 160, 24),
+                       QStringLiteral("r%1 c%2").arg(placement.pose.row).arg(placement.pose.column));
+    }
+    painter.end();
+
+    if (!mosaic.save(mosaicPath)) {
+      return BoardScanCaptureWorkflowResult::failure("Failed to save stitched whole-board mosaic.");
+    }
+  }
+
+  const QString summary =
+      QStringLiteral("整板扫描完成（QPainter）：%1 张 FOV，%2 行 x %3 列，输出=%4")
+          .arg(executeResult.value.size())
+          .arg(planResult.value.tileRows)
+          .arg(planResult.value.tileColumns)
+          .arg(mosaicPath);
+
+  updateProgram([&](ProgramModel &program) {
+    program.runtimeSummary.wholeBoardImagePath = mosaicPath.toStdString();
+    program.runtimeSummary.scanTileRows = planResult.value.tileRows;
+    program.runtimeSummary.scanTileColumns = planResult.value.tileColumns;
+    program.runtimeSummary.lastBoardScanSummary = summary.toStdString();
+  });
+
+  if (refreshWorkbenchAfterScan) {
+    refreshWorkbenchScene(false);
+    resetWorkbenchView();
+    refreshStatusSummary();
+  }
+
+  BoardScanCaptureResult result;
+  result.mosaicImagePath = mosaicPath.toStdString();
+  result.tileRows = planResult.value.tileRows;
+  result.tileColumns = planResult.value.tileColumns;
+  result.capturedTileCount = static_cast<int>(executeResult.value.size());
+  result.summary = summary.toStdString();
+  result.capturedTiles = executeResult.value;
+  return BoardScanCaptureWorkflowResult::success(std::move(result), summary.toStdString());
+}
+
+void MainWindow::runWholeBoardScan() {
+  syncProgramFromEditors();
+
+  const auto result = executeWholeBoardScan(true);
+  if (!result) {
+    appendLog(QStringLiteral("整板扫描失败：%1").arg(QString::fromStdString(result.message)));
+    return;
+  }
+
+  appendLog(QString::fromStdString(result.value.summary));
+}
+
+void MainWindow::logCalibrationRecord(const CalibrationRecord &record) {
+  if (!databaseManager_.isOpen()) {
+    return;
+  }
+
+  const auto insertResult = databaseManager_.insertCalibrationRecord(record);
+  if (!insertResult) {
+    appendLog(QStringLiteral("标定记录写入失败：%1").arg(QString::fromStdString(insertResult.message)));
+  }
 }
 
 void MainWindow::openLogWindow() {
@@ -1778,7 +2291,20 @@ void MainWindow::handleDrawnRegion(const QRectF &sceneRect) {
 }
 
 void MainWindow::addMarkFromSceneRect(const QRectF &sceneRect) {
-  updateProgram([this, sceneRect](ProgramModel &program) {
+  const auto currentProgram = programManager_.currentProgram();
+  const auto layout = currentBoardSceneLayout(currentProgram);
+  if (!layout.has_value()) {
+    appendLog(QStringLiteral("当前无法计算板坐标布局，Mark 创建失败。"));
+    return;
+  }
+
+  const auto boardRect = BoardViewTransform::sceneToBoardRect(*layout, toBoardSceneRect(sceneRect));
+  if (!boardRect.has_value()) {
+    appendLog(QStringLiteral("框选区域不在板范围内，Mark 创建失败。"));
+    return;
+  }
+
+  updateProgram([this, boardRect](ProgramModel &program) {
     MarkPoint mark;
     mark.name = markNameLineEdit_->text().isEmpty() ? QStringLiteral("Mark-%1").arg(program.marks.size() + 1).toStdString()
                                                     : markNameLineEdit_->text().toStdString();
@@ -1786,11 +2312,11 @@ void MainWindow::addMarkFromSceneRect(const QRectF &sceneRect) {
     mark.algorithm = markAlgorithmFromDisplayText(currentMarkAlgorithmText());
     mark.sampledColor = markColorLineEdit_->text().toStdString();
     mark.minimumScore = markMinScoreSpinBox_->value();
-    mark.width = sceneRect.width();
-    mark.height = sceneRect.height();
+    mark.width = boardRect->width;
+    mark.height = boardRect->height;
     mark.rotation = markRotationSpinBox_->value();
-    mark.x = sceneRect.center().x();
-    mark.y = sceneRect.center().y();
+    mark.x = boardRect->x + boardRect->width / 2.0;
+    mark.y = boardRect->y + boardRect->height / 2.0;
     mark.previewScore = calculatePreviewScore(mark);
     mark.score = calculateLiveScore(mark, lastFrameSize_);
     program.marks.push_back(mark);
@@ -1799,28 +2325,45 @@ void MainWindow::addMarkFromSceneRect(const QRectF &sceneRect) {
   });
 
   setCurrentPage(1);
-  appendLog(QStringLiteral("已通过框选区域生成一个 Mark 模板。"));
+  appendLog(QStringLiteral("已在整板坐标系中生成 Mark：中心=(%1, %2) mm。")
+                .arg(boardRect->x + boardRect->width / 2.0, 0, 'f', 2)
+                .arg(boardRect->y + boardRect->height / 2.0, 0, 'f', 2));
 }
 
 void MainWindow::addRoiFromSceneRect(const QRectF &sceneRect) {
-  updateProgram([this, sceneRect](ProgramModel &program) {
+  const auto currentProgram = programManager_.currentProgram();
+  const auto layout = currentBoardSceneLayout(currentProgram);
+  if (!layout.has_value()) {
+    appendLog(QStringLiteral("当前无法计算板坐标布局，ROI 创建失败。"));
+    return;
+  }
+
+  const auto boardRect = BoardViewTransform::sceneToBoardRect(*layout, toBoardSceneRect(sceneRect));
+  if (!boardRect.has_value()) {
+    appendLog(QStringLiteral("框选区域不在板范围内，ROI 创建失败。"));
+    return;
+  }
+
+  updateProgram([this, boardRect](ProgramModel &program) {
     RoiRegion roi;
     roi.name = roiNameLineEdit_->text().isEmpty() ? QStringLiteral("ROI-%1").arg(program.rois.size() + 1).toStdString()
                                                   : roiNameLineEdit_->text().toStdString();
     roi.shape = roiShapeFromDisplayText(currentRoiShapeText());
     roi.threshold = roiThresholdSpinBox_->value();
     roi.rotation = roiRotationSpinBox_->value();
-    roi.x = sceneRect.left();
-    roi.y = sceneRect.top();
-    roi.width = sceneRect.width();
-    roi.height = sceneRect.height();
+    roi.x = boardRect->x;
+    roi.y = boardRect->y;
+    roi.width = boardRect->width;
+    roi.height = boardRect->height;
     program.rois.push_back(roi);
     selectedRoiIndex_ = static_cast<int>(program.rois.size()) - 1;
     selectedMarkIndex_ = -1;
   });
 
   setCurrentPage(0);
-  appendLog(QStringLiteral("已通过框选区域生成一个 ROI 样本点。"));
+  appendLog(QStringLiteral("已在整板坐标系中生成 ROI：左上=(%1, %2) mm。")
+                .arg(boardRect->x, 0, 'f', 2)
+                .arg(boardRect->y, 0, 'f', 2));
 }
 
 void MainWindow::selectMarkIndex(const int index) {
@@ -1846,6 +2389,11 @@ void MainWindow::applyMarkEditorToSelection() {
     return;
   }
 
+  const auto currentProgram = programManager_.currentProgram();
+  if (!currentProgram.has_value()) {
+    return;
+  }
+
   updateProgram([this](ProgramModel &program) {
     if (selectedMarkIndex_ >= static_cast<int>(program.marks.size())) {
       return;
@@ -1860,6 +2408,10 @@ void MainWindow::applyMarkEditorToSelection() {
     mark.width = markWidthSpinBox_->value();
     mark.height = markHeightSpinBox_->value();
     mark.rotation = markRotationSpinBox_->value();
+    const MillimeterPoint clampedCenter = BoardViewTransform::clampCenteredPoint(
+        program.boardDefinition, MillimeterPoint {mark.x, mark.y}, mark.width, mark.height);
+    mark.x = clampedCenter.x;
+    mark.y = clampedCenter.y;
     mark.previewScore = calculatePreviewScore(mark);
     mark.score = calculateLiveScore(mark, lastFrameSize_);
   });
@@ -1869,6 +2421,11 @@ void MainWindow::applyMarkEditorToSelection() {
 
 void MainWindow::applyRoiEditorToSelection() {
   if (selectedRoiIndex_ < 0) {
+    return;
+  }
+
+  const auto currentProgram = programManager_.currentProgram();
+  if (!currentProgram.has_value()) {
     return;
   }
 
@@ -1884,6 +2441,10 @@ void MainWindow::applyRoiEditorToSelection() {
     roi.width = roiWidthSpinBox_->value();
     roi.height = roiHeightSpinBox_->value();
     roi.rotation = roiRotationSpinBox_->value();
+    const MillimeterPoint clampedTopLeft =
+        BoardViewTransform::clampTopLeftPoint(program.boardDefinition, MillimeterPoint {roi.x, roi.y}, roi.width, roi.height);
+    roi.x = clampedTopLeft.x;
+    roi.y = clampedTopLeft.y;
   });
 
   appendLog(QStringLiteral("选中的 ROI 参数已更新。"));
@@ -1976,7 +2537,7 @@ void MainWindow::previewMarkMatching() {
       if (selectedMarkIndex_ >= 0 && selectedMarkIndex_ < static_cast<int>(program.marks.size())) {
         program.marks[static_cast<std::size_t>(selectedMarkIndex_)].previewScore = mark.previewScore;
         program.marks[static_cast<std::size_t>(selectedMarkIndex_)].score = mark.score;
-        program.latestTemplateMatchSummary = detectSummary.toStdString();
+        program.runtimeSummary.latestTemplateMatchSummary = detectSummary.toStdString();
       }
     });
 
@@ -2033,30 +2594,53 @@ void MainWindow::captureCurrentTemplateImage() {
   }
 
   lastTemplateCapturePath_ = outputPath;
-  updateProgram([outputPath](ProgramModel &program) {
-    program.templateCachePath = outputPath.toStdString();
+
+  updateProgram([this, outputPath](ProgramModel &program) {
+    program.runtimeSummary.templateCachePath = outputPath.toStdString();
+
+    // Store the template path in the currently selected ROI's detector config
+    // so it can be used for per-ROI template matching during inspection.
+    if (selectedRoiIndex_ >= 0 &&
+        selectedRoiIndex_ < static_cast<int>(program.roiDetectorConfigs.size())) {
+      auto &config = program.roiDetectorConfigs[static_cast<std::size_t>(selectedRoiIndex_)];
+      if (config.detectorType == RoiDetectorType::Template) {
+        config.templateImagePath = outputPath.toStdString();
+      }
+    }
   });
   refreshTemplatePreviewSummary();
   appendLog(QStringLiteral("已抓取当前模板图：%1").arg(outputPath));
 }
 
 void MainWindow::centerOnCurrentSelection() {
-  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+  if (const auto currentProgram = programManager_.currentProgram();
+      currentProgram.has_value() && currentBoardSceneLayout(currentProgram).has_value()) {
+    const auto layout = *currentBoardSceneLayout(currentProgram);
     if (selectedMarkIndex_ >= 0 && selectedMarkIndex_ < static_cast<int>(currentProgram->marks.size())) {
       const auto &mark = currentProgram->marks[static_cast<std::size_t>(selectedMarkIndex_)];
-      workbenchGraphicsView_->centerOn(mark.x, mark.y);
+      const auto scenePoint = BoardViewTransform::boardToScenePoint(layout, MillimeterPoint {mark.x, mark.y});
+      workbenchGraphicsView_->centerOn(scenePoint.x, scenePoint.y);
       return;
     }
 
     if (selectedRoiIndex_ >= 0 && selectedRoiIndex_ < static_cast<int>(currentProgram->rois.size())) {
       const auto &roi = currentProgram->rois[static_cast<std::size_t>(selectedRoiIndex_)];
-      workbenchGraphicsView_->centerOn(roi.x + roi.width / 2.0, roi.y + roi.height / 2.0);
+      const auto sceneRect =
+          BoardViewTransform::boardToSceneTopLeftRect(layout, MillimeterPoint {roi.x, roi.y}, roi.width, roi.height);
+      workbenchGraphicsView_->centerOn(sceneRect.x + sceneRect.width / 2.0, sceneRect.y + sceneRect.height / 2.0);
     }
   }
 }
 
 void MainWindow::updateCursorCoordinate(const QPointF &scenePos) {
-  cursorPositionValueLabel_->setText(QStringLiteral("X=%1 Y=%2").arg(scenePos.x(), 0, 'f', 1).arg(scenePos.y(), 0, 'f', 1));
+  QString cursorText = QStringLiteral("Scene X=%1 Y=%2").arg(scenePos.x(), 0, 'f', 1).arg(scenePos.y(), 0, 'f', 1);
+  if (const auto layout = currentBoardSceneLayout(programManager_.currentProgram()); layout.has_value()) {
+    if (const auto boardPoint = BoardViewTransform::sceneToBoardPoint(*layout, toBoardScenePoint(scenePos), false);
+        boardPoint.has_value()) {
+      cursorText = QStringLiteral("板坐标 X=%1 mm Y=%2 mm").arg(boardPoint->x, 0, 'f', 2).arg(boardPoint->y, 0, 'f', 2);
+    }
+  }
+  cursorPositionValueLabel_->setText(cursorText);
   topRulerWidget_->setCursorScenePosition(scenePos);
   leftRulerWidget_->setCursorScenePosition(scenePos);
 }
@@ -2101,25 +2685,59 @@ void MainWindow::updateRoiEditorFromSelection() {
 }
 
 void MainWindow::updateSelectedMarkFromScene(const QPointF &centerScenePos) {
-  updateProgram([this, centerScenePos](ProgramModel &program) {
+  const auto currentProgram = programManager_.currentProgram();
+  const auto layout = currentBoardSceneLayout(currentProgram);
+  if (!currentProgram.has_value() || !layout.has_value() || selectedMarkIndex_ < 0 ||
+      selectedMarkIndex_ >= static_cast<int>(currentProgram->marks.size())) {
+    return;
+  }
+
+  const auto &mark = currentProgram->marks[static_cast<std::size_t>(selectedMarkIndex_)];
+  const auto boardPoint = BoardViewTransform::sceneToBoardPoint(*layout, toBoardScenePoint(centerScenePos));
+  if (!boardPoint.has_value()) {
+    return;
+  }
+
+  const MillimeterPoint clampedCenter =
+      BoardViewTransform::clampCenteredPoint(currentProgram->boardDefinition, *boardPoint, mark.width, mark.height);
+  updateProgram([this, clampedCenter](ProgramModel &program) {
     if (selectedMarkIndex_ >= 0 && selectedMarkIndex_ < static_cast<int>(program.marks.size())) {
-      auto &mark = program.marks[static_cast<std::size_t>(selectedMarkIndex_)];
-      mark.x = centerScenePos.x();
-      mark.y = centerScenePos.y();
+      auto &currentMark = program.marks[static_cast<std::size_t>(selectedMarkIndex_)];
+      currentMark.x = clampedCenter.x;
+      currentMark.y = clampedCenter.y;
     }
   });
-  appendLog(QStringLiteral("Mark 位置已更新到 X=%1, Y=%2。").arg(centerScenePos.x(), 0, 'f', 1).arg(centerScenePos.y(), 0, 'f', 1));
+  appendLog(QStringLiteral("Mark 位置已更新到板坐标 X=%1 mm, Y=%2 mm。")
+                .arg(clampedCenter.x, 0, 'f', 2)
+                .arg(clampedCenter.y, 0, 'f', 2));
 }
 
 void MainWindow::updateSelectedRoiFromScene(const QPointF &topLeftScenePos) {
-  updateProgram([this, topLeftScenePos](ProgramModel &program) {
+  const auto currentProgram = programManager_.currentProgram();
+  const auto layout = currentBoardSceneLayout(currentProgram);
+  if (!currentProgram.has_value() || !layout.has_value() || selectedRoiIndex_ < 0 ||
+      selectedRoiIndex_ >= static_cast<int>(currentProgram->rois.size())) {
+    return;
+  }
+
+  const auto &roi = currentProgram->rois[static_cast<std::size_t>(selectedRoiIndex_)];
+  const auto boardPoint = BoardViewTransform::sceneToBoardPoint(*layout, toBoardScenePoint(topLeftScenePos));
+  if (!boardPoint.has_value()) {
+    return;
+  }
+
+  const MillimeterPoint clampedTopLeft =
+      BoardViewTransform::clampTopLeftPoint(currentProgram->boardDefinition, *boardPoint, roi.width, roi.height);
+  updateProgram([this, clampedTopLeft](ProgramModel &program) {
     if (selectedRoiIndex_ >= 0 && selectedRoiIndex_ < static_cast<int>(program.rois.size())) {
-      auto &roi = program.rois[static_cast<std::size_t>(selectedRoiIndex_)];
-      roi.x = topLeftScenePos.x();
-      roi.y = topLeftScenePos.y();
+      auto &currentRoi = program.rois[static_cast<std::size_t>(selectedRoiIndex_)];
+      currentRoi.x = clampedTopLeft.x;
+      currentRoi.y = clampedTopLeft.y;
     }
   });
-  appendLog(QStringLiteral("ROI 位置已更新到 X=%1, Y=%2。").arg(topLeftScenePos.x(), 0, 'f', 1).arg(topLeftScenePos.y(), 0, 'f', 1));
+  appendLog(QStringLiteral("ROI 位置已更新到板坐标 X=%1 mm, Y=%2 mm。")
+                .arg(clampedTopLeft.x, 0, 'f', 2)
+                .arg(clampedTopLeft.y, 0, 'f', 2));
 }
 
 QString MainWindow::projectRootPath() const {
@@ -2181,7 +2799,24 @@ QString MainWindow::cameraModeText() const {
 }
 
 QString MainWindow::motionStateText() const {
-  return virtualMotionController_.isStopped() ? QStringLiteral("急停锁定") : QStringLiteral("运行就绪");
+  QString transportText;
+  switch (virtualTransportController_.state()) {
+  case BoardTransportState::Idle:
+    transportText = QStringLiteral("待进板");
+    break;
+  case BoardTransportState::Loading:
+    transportText = QStringLiteral("进板中");
+    break;
+  case BoardTransportState::BoardReady:
+    transportText = QStringLiteral("板到位");
+    break;
+  case BoardTransportState::Unloading:
+    transportText = QStringLiteral("出板中");
+    break;
+  }
+
+  const QString axisText = virtualMotionController_.isStopped() ? QStringLiteral("轴急停") : QStringLiteral("轴就绪");
+  return QStringLiteral("%1 / %2").arg(axisText, transportText);
 }
 
 QString MainWindow::currentMarkShapeText() const {
@@ -2204,7 +2839,7 @@ void MainWindow::buildRunInterface() {
   connect(runModeWidget_, &RunModeWidget::startRequested, this, &MainWindow::startWorkflowRun);
   connect(runModeWidget_, &RunModeWidget::stopRequested, this, &MainWindow::stopWorkflowRun);
   connect(runModeWidget_, &RunModeWidget::pauseRequested, this, &MainWindow::pauseWorkflowRun);
-  connect(runModeWidget_, &RunModeWidget::singleStepRequested, this, &MainWindow::advanceWorkflowStep);
+  connect(runModeWidget_, &RunModeWidget::singleStepRequested, this, &MainWindow::runSingleWorkflowStep);
 }
 
 void MainWindow::switchToEditorMode() {
@@ -2238,13 +2873,16 @@ void MainWindow::switchToRunMode() {
   // Initialize workflow context
   const auto currentProgram = programManager_.currentProgram();
   workflowContext_ = WorkflowContext {};
-  workflowContext_.boardId = "BOARD-001";
   if (currentProgram.has_value()) {
     // We need a mutable pointer for the workflow; use the program manager's non-const access.
     workflowContext_.program = programManager_.mutableProgram();
   }
   workflowContext_.motionController = &virtualMotionController_;
   workflowContext_.laserController = &virtualLaserController_;
+  workflowContext_.transportController = &virtualTransportController_;
+  workflowContext_.databaseManager = &databaseManager_;
+  workflowContext_.reuseInjectedInputs = false;
+  workflowContext_.boardReady = virtualTransportController_.isBoardReady();
   workflowContext_.totalBoards = 10;
   workflowContext_.boardIndex = runModeWidget_->currentBoardIndex();
 
@@ -2308,6 +2946,9 @@ void MainWindow::switchToRunMode() {
 
     return {};
   };
+  workflowContext_.captureWholeBoardScan = [this]() -> BoardScanCaptureWorkflowResult {
+    return executeWholeBoardScan(false);
+  };
 
   if (mainStackedWidget_ != nullptr) {
     mainStackedWidget_->setCurrentIndex(1);
@@ -2322,6 +2963,7 @@ void MainWindow::switchToRunMode() {
   }
 
   runModeWidget_->appendProductionLog(QStringLiteral("已进入运行模式，等待启动。"));
+  runModeWidget_->fitPreviewContent();
   appendLog(QStringLiteral("已切换到运行模式。左：锁定预览 | 右：生产数据看板"));
   refreshStatusSummary();
 }
@@ -2332,6 +2974,7 @@ QString stepTypeDisplayName(const ProcessStepType type) {
   switch (type) {
   case ProcessStepType::LoadBoard:      return QStringLiteral("进板");
   case ProcessStepType::RoughPosition:  return QStringLiteral("粗定位");
+  case ProcessStepType::ImageCapture:   return QStringLiteral("图像采集");
   case ProcessStepType::MarkAlign:      return QStringLiteral("Mark 定位");
   case ProcessStepType::DefectInspect:  return QStringLiteral("缺陷检测");
   case ProcessStepType::PreLaser:       return QStringLiteral("激光前检查");
@@ -2349,10 +2992,35 @@ void MainWindow::startWorkflowRun() {
     return;
   }
 
+  if (!virtualTransportController_.isBoardReady()) {
+    if (runModeWidget_ != nullptr) {
+      runModeWidget_->appendProductionLog(QStringLiteral("板尚未到位，无法启动流程。请先执行进板。"));
+    }
+    appendLog(QStringLiteral("板尚未到位，无法启动流程。"));
+    return;
+  }
+
+  if (workflowContext_.program == programManager_.mutableProgram() && workflowContext_.totalBoards > 0 &&
+      workflowContext_.boardIndex < workflowContext_.totalBoards &&
+      (workflowContext_.nextStepIndex > 0 || workflowContext_.boardIndex > 0 ||
+       workflowContext_.okCount > 0 || workflowContext_.ngCount > 0)) {
+    workflowRunning_ = true;
+    workflowTimer_->start();
+    if (runModeWidget_ != nullptr) {
+      runModeWidget_->appendProductionLog(QStringLiteral("工作流已恢复。"));
+    }
+    appendLog(QStringLiteral("工作流已恢复。"));
+    return;
+  }
+
   workflowContext_ = WorkflowContext {};
   workflowContext_.program = programManager_.mutableProgram();
   workflowContext_.motionController = &virtualMotionController_;
   workflowContext_.laserController = &virtualLaserController_;
+  workflowContext_.transportController = &virtualTransportController_;
+  workflowContext_.databaseManager = &databaseManager_;
+  workflowContext_.reuseInjectedInputs = false;
+  workflowContext_.boardReady = virtualTransportController_.isBoardReady();
   workflowContext_.totalBoards = 10;
   workflowContext_.boardIndex = 0;
   workflowContext_.okCount = 0;
@@ -2377,12 +3045,42 @@ void MainWindow::startWorkflowRun() {
 
     return {};
   };
+  workflowContext_.captureWholeBoardScan = [this]() -> BoardScanCaptureWorkflowResult {
+    return executeWholeBoardScan(false);
+  };
 
   // Wire step progress callback for UI updates.
   workflowContext_.onStepProgress = [this](const int stepIdx, const int totalSteps,
-                                           const std::string &stepName, const StepExecutionStatus) {
+                                           const std::string &stepName, const StepExecutionStatus status) {
     workflowStepIndex_ = stepIdx;
     workflowTotalSteps_ = totalSteps;
+    if (runModeWidget_ != nullptr) {
+      QString statusText;
+      switch (status) {
+      case StepExecutionStatus::Running:
+        statusText = QStringLiteral("执行中");
+        break;
+      case StepExecutionStatus::Succeeded:
+        statusText = QStringLiteral("完成");
+        break;
+      case StepExecutionStatus::Failed:
+        statusText = QStringLiteral("失败");
+        break;
+      case StepExecutionStatus::Skipped:
+        statusText = QStringLiteral("跳过");
+        break;
+      default:
+        statusText = QStringLiteral("等待");
+        break;
+      }
+
+      runModeWidget_->updateStepProgress(
+          QStringLiteral("步骤 %1/%2: %3 [%4]")
+              .arg(stepIdx)
+              .arg(totalSteps)
+              .arg(QString::fromStdString(stepName), statusText),
+          stepIdx, totalSteps);
+    }
   };
 
   // Wire log callback.
@@ -2412,6 +3110,9 @@ void MainWindow::startWorkflowRun() {
         QStringLiteral("工作流已启动，共 %1 块板待处理，%2 个步骤/板。")
             .arg(workflowContext_.totalBoards)
             .arg(workflowTotalSteps_));
+    runModeWidget_->appendProductionLog(
+        QStringLiteral("─────────────────────────────────\n开始处理板 #1 / %1")
+            .arg(workflowContext_.totalBoards));
   }
 
   appendLog(QStringLiteral("工作流已启动。"));
@@ -2440,32 +3141,53 @@ void MainWindow::pauseWorkflowRun() {
   appendLog(QStringLiteral("工作流已暂停。"));
 }
 
+void MainWindow::runSingleWorkflowStep() {
+  advanceWorkflowStepInternal(true);
+}
+
 void MainWindow::advanceWorkflowStep() {
-  if (!workflowRunning_) {
+  advanceWorkflowStepInternal(false);
+}
+
+void MainWindow::advanceWorkflowStepInternal(const bool allowWhenPaused) {
+  if (!allowWhenPaused && !workflowRunning_) {
     return;
   }
 
-  // Each timer tick processes one complete board through the real workflow engine.
-  const WorkflowRunResult result = processEngine_.runBoard(workflowContext_);
+  const WorkflowStepRunResult stepResult = processEngine_.runNextStep(workflowContext_);
+  if (!stepResult.advanced) {
+    appendLog(QStringLiteral("工作流无法继续推进。"));
+    return;
+  }
 
   if (runModeWidget_ != nullptr) {
-    const int totalSteps = workflowTotalSteps_ > 0 ? workflowTotalSteps_
-                                                    : static_cast<int>(processEngine_.stepCount());
+    const auto &record = stepResult.record;
+    const QString statusIcon = record.status == StepExecutionStatus::Succeeded   ? QStringLiteral("OK")
+                             : record.status == StepExecutionStatus::Failed     ? QStringLiteral("FAIL")
+                             : record.status == StepExecutionStatus::Skipped   ? QStringLiteral("SKIP")
+                                                                               : QStringLiteral("...");
+    runModeWidget_->appendProductionLog(
+        QStringLiteral("  %1 [%2] %3")
+            .arg(stepTypeDisplayName(record.stepType))
+            .arg(statusIcon)
+            .arg(QString::fromStdString(record.message)));
+  }
+
+  if (!stepResult.boardCompleted) {
+    return;
+  }
+
+  const int totalSteps = workflowTotalSteps_ > 0 ? workflowTotalSteps_
+                                                  : static_cast<int>(processEngine_.stepCount());
+  if (runModeWidget_ != nullptr) {
     runModeWidget_->updateStepProgress(
         QStringLiteral("板 #%1 完成").arg(workflowContext_.boardIndex + 1),
         totalSteps, totalSteps);
+  }
 
-    for (const auto &record : result.records) {
-      const QString statusIcon = record.status == StepExecutionStatus::Succeeded   ? QStringLiteral("OK")
-                                 : record.status == StepExecutionStatus::Failed     ? QStringLiteral("FAIL")
-                                 : record.status == StepExecutionStatus::Skipped   ? QStringLiteral("SKIP")
-                                                                                   : QStringLiteral("...");
-      runModeWidget_->appendProductionLog(
-          QStringLiteral("  %1 [%2] %3")
-              .arg(stepTypeDisplayName(record.stepType))
-              .arg(statusIcon)
-              .arg(QString::fromStdString(record.message)));
-    }
+  // Submit laser-point results to SPC for the completed board.
+  if (spcBridge_ != nullptr) {
+    spcBridge_->submitWorkflowResult(workflowContext_);
   }
 
   ++workflowContext_.boardIndex;
@@ -2475,8 +3197,6 @@ void MainWindow::advanceWorkflowStep() {
     workflowRunning_ = false;
 
     if (runModeWidget_ != nullptr) {
-      const int totalSteps = workflowTotalSteps_ > 0 ? workflowTotalSteps_
-                                                      : static_cast<int>(processEngine_.stepCount());
       runModeWidget_->appendProductionLog(
           QString::fromUtf8("═══════════════════════════════════\n"
                             "全部 %1 块板处理完成。OK=%2, NG=%3\n"
@@ -2493,8 +3213,7 @@ void MainWindow::advanceWorkflowStep() {
 
   if (runModeWidget_ != nullptr) {
     runModeWidget_->appendProductionLog(
-        QString::fromUtf8("─────────────────────────────────\n"
-                          "开始处理板 #%1 / %2")
+        QString::fromUtf8("─────────────────────────────────\n开始处理板 #%1 / %2")
             .arg(workflowContext_.boardIndex + 1)
             .arg(workflowContext_.totalBoards));
   }

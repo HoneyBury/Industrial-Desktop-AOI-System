@@ -93,6 +93,14 @@ void RunModeWidget::setTotalBoards(const int count) {
   refreshDashboard();
 }
 
+void RunModeWidget::fitPreviewContent() {
+  if (previewView_ == nullptr || previewScene_ == nullptr) {
+    return;
+  }
+
+  previewView_->fitInView(previewScene_->sceneRect(), Qt::KeepAspectRatio);
+}
+
 void RunModeWidget::appendProductionLog(const QString &message) {
   if (productionLogEdit_ == nullptr) {
     return;
@@ -197,7 +205,7 @@ void RunModeWidget::buildLockedPreview(QBoxLayout *parentLayout) {
   const QImage placeholder = buildPlaceholderPreview();
   previewPixmapItem_ = previewScene_->addPixmap(QPixmap::fromImage(placeholder));
   previewScene_->setSceneRect(0, 0, kPreviewWidth, kPreviewHeight);
-  previewView_->fitInView(previewScene_->sceneRect(), Qt::KeepAspectRatio);
+  fitPreviewContent();
 
   // Overlay status text
   auto *overlayLabel = new QLabel(QString::fromUtf8("锁定模式 - 运行中自动刷新"), previewGroup);
@@ -386,6 +394,7 @@ void RunModeWidget::refreshPreview() {
   const QPixmap pixmap = QPixmap::fromImage(
       frame.scaled(kPreviewWidth, kPreviewHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation));
   previewPixmapItem_->setPixmap(pixmap);
+  fitPreviewContent();
 }
 
 void RunModeWidget::refreshDashboard() {

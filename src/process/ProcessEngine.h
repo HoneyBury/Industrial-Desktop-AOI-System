@@ -14,6 +14,9 @@ public:
   /// Run a single board through the workflow.
   [[nodiscard]] WorkflowRunResult runBoard(WorkflowContext &context) const;
 
+  /// Advance exactly one workflow step for the current board.
+  [[nodiscard]] WorkflowStepRunResult runNextStep(WorkflowContext &context) const;
+
   /// Run all boards sequentially. Returns when all boards are processed or
   /// cancelled. The context's callbacks are invoked for progress and results.
   void runAllBoards(WorkflowContext &context);

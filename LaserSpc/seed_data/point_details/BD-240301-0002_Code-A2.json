@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "data": {
+    "laserTemplatePath": "templates/Program-A/Code-A2.tpl",
+    "laserContent": "A2-LASER-240301-0002",
+    "readCodeContent": "READ-A2",
+    "success": true,
+    "programName": "Program-A",
+    "startTime": "2026-03-10T08:17:20",
+    "endTime": "2026-03-10T08:18:20"
+  }
+}

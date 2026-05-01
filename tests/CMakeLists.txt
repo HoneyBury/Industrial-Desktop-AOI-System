@@ -26,6 +26,7 @@ else()
 endif()
 
 add_executable(aoi_core_tests
+  unit/test_board_scan.cpp
   unit/test_calibration_modules.cpp
   unit/test_coordinate_transformer.cpp
   unit/test_mark_alignment.cpp

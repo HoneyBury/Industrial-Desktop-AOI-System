@@ -6,6 +6,7 @@
 enum class ProcessStepType {
   LoadBoard,
   RoughPosition,
+  ImageCapture,
   MarkAlign,
   DefectInspect,
   PreLaser,
@@ -38,4 +39,13 @@ struct WorkflowRunResult {
   bool ok {false};
   std::vector<StepExecutionRecord> records;
   std::string message;
+};
+
+struct WorkflowStepRunResult {
+  bool advanced {false};
+  bool boardCompleted {false};
+  bool boardOk {false};
+  int nextStepIndex {0};
+  StepExecutionRecord record;
+  WorkflowRunResult boardResult;
 };

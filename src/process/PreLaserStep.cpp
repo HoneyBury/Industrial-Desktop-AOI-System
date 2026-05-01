@@ -1,8 +1,27 @@
 #include "process/PreLaserStep.h"
 
+#include "coordinate/CoordinateTransformer.h"
 #include "motion/MotionAxis.h"
 
+#include <algorithm>
 #include <sstream>
+
+namespace {
+
+MechanicalPose laserPreparationOriginPose(const WorkflowContext &context) {
+  if (context.program != nullptr) {
+    if (context.program->runtimeSummary.hasOriginCalibration) {
+      return context.program->runtimeSummary.originCorrectedPose;
+    }
+    if (context.program->originCalibration.calibrated) {
+      return context.program->originCalibration.machineReferencePose;
+    }
+  }
+
+  return context.currentMachinePose;
+}
+
+} // namespace
 
 PreLaserStep::PreLaserStep(std::string stepId) : stepId_(std::move(stepId)) {}
 
@@ -21,27 +40,54 @@ StepExecutionResult PreLaserStep::execute(WorkflowContext &context) const {
     return StepExecutionResult {StepExecutionStatus::Failed, "Mark alignment result is missing."};
   }
 
-  MechanicalPose targetPose = context.currentMachinePose;
-  targetPose.x -= context.lastMarkAlignment.millimeterOffset.x;
-  targetPose.y -= context.lastMarkAlignment.millimeterOffset.y;
-  targetPose.r -= context.lastMarkAlignment.rotationDegrees;
+  context.laserPointResults.clear();
 
-  if (context.program->laserOffsetCalibration.calibrated) {
-    targetPose.x += context.program->laserOffsetCalibration.cameraToLaserDxMm;
-    targetPose.y += context.program->laserOffsetCalibration.cameraToLaserDyMm;
+  CoordinateTransformer transformer;
+  const MechanicalPose originPose = laserPreparationOriginPose(context);
+  const double laserOffsetX =
+      context.program->laserOffsetCalibration.calibrated ? context.program->laserOffsetCalibration.cameraToLaserDxMm : 0.0;
+  const double laserOffsetY =
+      context.program->laserOffsetCalibration.calibrated ? context.program->laserOffsetCalibration.cameraToLaserDyMm : 0.0;
+
+  for (const auto &task : context.program->laserPointTasks) {
+    if (!task.enabled) {
+      continue;
+    }
+
+    MechanicalPose targetPose =
+        transformer.productToMechanical(MillimeterPoint {task.x, task.y}, originPose);
+    targetPose.x -= context.lastMarkAlignment.millimeterOffset.x;
+    targetPose.y -= context.lastMarkAlignment.millimeterOffset.y;
+    targetPose.r -= context.lastMarkAlignment.rotationDegrees;
+    targetPose.x += laserOffsetX;
+    targetPose.y += laserOffsetY;
+
+    context.laserPointResults.push_back(LaserPointExecutionResult {
+        task.name,
+        task.linkedRoiName,
+        MillimeterPoint {task.x, task.y},
+        targetPose,
+        false,
+        false,
+        false,
+        task.expectedCodeText,
+        {},
+        {},
+    });
   }
 
-  if (!context.motionController->moveAbsolute(MotionAxis::X, targetPose.x) ||
-      !context.motionController->moveAbsolute(MotionAxis::Y, targetPose.y) ||
-      !context.motionController->moveAbsolute(MotionAxis::R, targetPose.r)) {
-    return StepExecutionResult {StepExecutionStatus::Failed, "Failed to move to pre-laser compensated pose."};
+  if (context.laserPointResults.empty()) {
+    return StepExecutionResult {StepExecutionStatus::Failed, "No enabled laser point tasks are available for execution."};
   }
 
-  context.preparedLaserPose = targetPose;
+  const auto &firstPoint = context.laserPointResults.front();
+  context.preparedLaserPose = firstPoint.machinePose;
   context.hasPreparedLaserPose = true;
-  context.currentMachinePose = targetPose;
+  context.currentMachinePose = firstPoint.machinePose;
 
   std::ostringstream stream;
-  stream << "Pre-laser pose prepared: X=" << targetPose.x << ", Y=" << targetPose.y << ", R=" << targetPose.r;
+  stream << "Prepared " << context.laserPointResults.size()
+         << " compensated laser point(s); first point X=" << firstPoint.machinePose.x
+         << ", Y=" << firstPoint.machinePose.y << ", R=" << firstPoint.machinePose.r;
   return StepExecutionResult {StepExecutionStatus::Succeeded, stream.str()};
 }

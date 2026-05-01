@@ -32,6 +32,7 @@ public:
   void setFrameProvider(FrameProvider provider);
   void setBoardCountProvider(BoardCountProvider provider);
   void setTotalBoards(int count);
+  void fitPreviewContent();
 
   void appendProductionLog(const QString &message);
   void updateStepProgress(const QString &stepName, int stepIndex, int totalSteps);

@@ -1,12 +1,13 @@
 #include "vision/RoiDetector.h"
 
 #include <algorithm>
+#include <fstream>
 #include <sstream>
 
 #ifdef AOI_HAS_OPENCV
 #include <opencv2/core.hpp>
-#include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 #endif
 
 Result<std::vector<RoiRegion>> RoiDetector::detectByThreshold(const std::string &imagePath) const {
@@ -58,18 +59,70 @@ Result<std::vector<RoiRegion>> RoiDetector::detectByThreshold(const std::string 
 #endif
 }
 
-Result<std::vector<RoiRegion>> RoiDetector::detectByTemplate(const std::string &imagePath) const {
+namespace {
+
+bool fileExists(const std::string &path) {
+  std::ifstream f(path);
+  return f.good();
+}
+
+} // namespace
+
+Result<std::vector<RoiRegion>>
+RoiDetector::detectByTemplate(const std::string &imagePath,
+                              const std::string &templateImagePath) const {
 #ifdef AOI_HAS_OPENCV
+  const bool hasTemplate = !templateImagePath.empty() && fileExists(templateImagePath);
+
   const cv::Mat image = cv::imread(imagePath, cv::IMREAD_COLOR);
   if (image.empty()) {
     return Result<std::vector<RoiRegion>>::failure("Failed to load image: " + imagePath);
   }
 
-  // Use adaptive threshold contours as fallback when no explicit template
-  // image is provided.
   cv::Mat gray;
   cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
 
+  if (hasTemplate) {
+    // True template matching against the stored reference image.
+    cv::Mat templ = cv::imread(templateImagePath, cv::IMREAD_COLOR);
+    if (templ.empty()) {
+      return Result<std::vector<RoiRegion>>::failure(
+          "Failed to load template image: " + templateImagePath);
+    }
+
+    cv::Mat templGray;
+    cv::cvtColor(templ, templGray, cv::COLOR_BGR2GRAY);
+
+    if (templGray.rows > gray.rows || templGray.cols > gray.cols) {
+      return Result<std::vector<RoiRegion>>::failure(
+          "Template image is larger than the inspection image.");
+    }
+
+    cv::Mat result;
+    cv::matchTemplate(gray, templGray, result, cv::TM_CCOEFF_NORMED);
+
+    double maxVal = 0.0;
+    cv::Point maxLoc;
+    cv::minMaxLoc(result, nullptr, &maxVal, nullptr, &maxLoc);
+
+    std::vector<RoiRegion> rois;
+    RoiRegion roi;
+    roi.name = "Template-Match";
+    roi.x = maxLoc.x;
+    roi.y = maxLoc.y;
+    roi.width = templ.cols;
+    roi.height = templ.rows;
+    roi.threshold = 0.75;
+    roi.shape = RoiShape::Rectangle;
+    roi.enabled = maxVal >= 0.5;
+
+    std::ostringstream ss;
+    ss << "Template match score=" << maxVal << " at (" << maxLoc.x << "," << maxLoc.y << ")";
+    rois.push_back(roi);
+    return Result<std::vector<RoiRegion>>::success(rois, ss.str());
+  }
+
+  // Fallback: edge/contour detection when no template is stored.
   cv::Mat edges;
   cv::Canny(gray, edges, 50, 150);
 
@@ -100,9 +153,10 @@ Result<std::vector<RoiRegion>> RoiDetector::detectByTemplate(const std::string &
   }
 
   std::ostringstream ss;
-  ss << "Template-based detection found " << rois.size() << " ROI(s) in " << imagePath;
+  ss << "Template-based detection (fallback) found " << rois.size() << " ROI(s) in " << imagePath;
   return Result<std::vector<RoiRegion>>::success(rois, ss.str());
 #else
+  (void)templateImagePath;
   return Result<std::vector<RoiRegion>>::success(
       {{"Template-ROI", 32.0, 44.0, 100.0, 100.0, 0.0, 0.82, RoiShape::Circle, true}},
       "Template ROI detection completed for " + imagePath);

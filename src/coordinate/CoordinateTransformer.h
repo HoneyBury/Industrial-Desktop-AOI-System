@@ -41,9 +41,17 @@ struct RigidTransform2D {
   double rotationDegrees {0.0};
 };
 
+// 6-layer coordinate chain used by the AOI system:
+//
+//   CameraPixel ──(undistort)──▶ UndistortedPixel ──(×pixelScale)──▶ ImagePhysicalMm
+//       ──(rigid)──▶ Product ──(rigid+origin)──▶ Machine ──(offset)──▶ Laser
+//
+// Distortion uses a 2-parameter radial model (k₁, k₂) relative to the
+// optical center.  Each rigid transform applies rotation first then
+// translation.
 struct CoordinateTransformChain {
   PixelPoint opticalCenterPixel;
-  std::vector<double> distortionCoefficients;
+  std::vector<double> distortionCoefficients; // [k1, k2, ...]
   double pixelToMillimeterX {0.01};
   double pixelToMillimeterY {0.01};
   RigidTransform2D imagePhysicalToProduct;

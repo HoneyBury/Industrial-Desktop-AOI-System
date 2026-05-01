@@ -45,5 +45,11 @@ struct RoiRegion {
 class RoiDetector {
 public:
   Result<std::vector<RoiRegion>> detectByThreshold(const std::string &imagePath) const;
-  Result<std::vector<RoiRegion>> detectByTemplate(const std::string &imagePath) const;
+
+  /// Template-based detection. When `templateImagePath` is non-empty and
+  /// OpenCV is available, performs actual template matching against that
+  /// reference image.  Otherwise falls back to edge/contour detection.
+  Result<std::vector<RoiRegion>>
+  detectByTemplate(const std::string &imagePath,
+                   const std::string &templateImagePath = "") const;
 };

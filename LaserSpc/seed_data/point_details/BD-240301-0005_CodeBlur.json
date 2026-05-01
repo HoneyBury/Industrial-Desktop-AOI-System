@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "data": {
+    "laserTemplatePath": "templates/Program-D/CodeBlur.tpl",
+    "laserContent": "D1-BLUR-CHECK",
+    "readCodeContent": "READ-D1",
+    "success": false,
+    "programName": "Program-D",
+    "startTime": "2026-03-10T08:18:50",
+    "endTime": "2026-03-10T08:19:40"
+  }
+}

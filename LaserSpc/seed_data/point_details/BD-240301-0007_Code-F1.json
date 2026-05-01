@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "data": {
+    "laserTemplatePath": "templates/Program-F/Code-F1.tpl",
+    "laserContent": "F1-LASER-240301-0007",
+    "readCodeContent": "READ-F1",
+    "success": true,
+    "programName": "Program-F",
+    "startTime": "2026-03-10T08:19:20",
+    "endTime": "2026-03-10T08:20:10"
+  }
+}

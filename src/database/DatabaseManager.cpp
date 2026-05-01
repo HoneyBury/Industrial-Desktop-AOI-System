@@ -312,6 +312,78 @@ Result<std::vector<CalibrationRecord>> DatabaseManager::queryCalibrationHistory(
 #endif
 }
 
+Result<void> DatabaseManager::upsertBoardRecord(const BoardRecord &record) {
+#ifdef AOI_HAS_SQLITE
+  if (db_ == nullptr) {
+    return Result<void>::failure("Database is not open.");
+  }
+
+  const std::string createdAt = record.createdAt.empty() ? currentTimestamp() : record.createdAt;
+  const std::string updatedAt = record.updatedAt.empty() ? currentTimestamp() : record.updatedAt;
+
+  std::ostringstream sql;
+  sql << "INSERT INTO board_records (board_id, program_name, status, created_at, updated_at) VALUES ('"
+      << escapeSql(record.boardId) << "', '"
+      << escapeSql(record.programName) << "', '"
+      << escapeSql(record.status.empty() ? "pending" : record.status) << "', '"
+      << escapeSql(createdAt) << "', '"
+      << escapeSql(updatedAt) << "') "
+      << "ON CONFLICT(board_id) DO UPDATE SET "
+      << "program_name=excluded.program_name, "
+      << "status=excluded.status, "
+      << "updated_at=excluded.updated_at;";
+
+  char *errMsg = nullptr;
+  const int rc = sqlite3_exec(db_, sql.str().c_str(), nullptr, nullptr, &errMsg);
+  if (rc != SQLITE_OK) {
+    const std::string err = errMsg != nullptr ? errMsg : "unknown error";
+    sqlite3_free(errMsg);
+    return Result<void>::failure("Failed to upsert board record: " + err);
+  }
+
+  return Result<void>::success("Board record saved.");
+#else
+  return Result<void>::success("Board record logged (stub).");
+#endif
+}
+
+Result<std::vector<BoardRecord>> DatabaseManager::queryBoardRecords(int limit) const {
+  std::vector<BoardRecord> results;
+
+#ifdef AOI_HAS_SQLITE
+  if (db_ == nullptr) {
+    return Result<std::vector<BoardRecord>>::failure("Database is not open.");
+  }
+
+  std::ostringstream sql;
+  sql << "SELECT board_id, program_name, status, created_at, updated_at "
+         "FROM board_records ORDER BY id DESC LIMIT "
+      << limit << ";";
+
+  sqlite3_stmt *stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, sql.str().c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    return Result<std::vector<BoardRecord>>::failure("Query failed: " +
+                                                     std::string(sqlite3_errmsg(db_)));
+  }
+
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    BoardRecord rec;
+    rec.boardId = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+    rec.programName = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+    rec.status = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
+    rec.createdAt = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
+    rec.updatedAt = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
+    results.push_back(rec);
+  }
+
+  sqlite3_finalize(stmt);
+  return Result<std::vector<BoardRecord>>::success(
+      results, "Query returned " + std::to_string(results.size()) + " board record(s).");
+#else
+  return Result<std::vector<BoardRecord>>::success(results, "Query returned 0 board records (stub).");
+#endif
+}
+
 Result<int> DatabaseManager::countBoardResults(const std::string &decision,
                                                const std::string &sinceTimestamp) const {
 #ifdef AOI_HAS_SQLITE

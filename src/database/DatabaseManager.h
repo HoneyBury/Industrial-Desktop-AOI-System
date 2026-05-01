@@ -36,6 +36,14 @@ struct CalibrationRecord {
   std::string notes;
 };
 
+struct BoardRecord {
+  std::string boardId;
+  std::string programName;
+  std::string status;
+  std::string createdAt;
+  std::string updatedAt;
+};
+
 class DatabaseManager {
 public:
   Result<void> open(const std::string &databasePath);
@@ -50,6 +58,10 @@ public:
   // Calibration history.
   Result<void> insertCalibrationRecord(const CalibrationRecord &record);
   Result<std::vector<CalibrationRecord>> queryCalibrationHistory(int limit = 50) const;
+
+  // Board lifecycle traceability.
+  Result<void> upsertBoardRecord(const BoardRecord &record);
+  Result<std::vector<BoardRecord>> queryBoardRecords(int limit = 100) const;
 
   // Production statistics query.
   Result<int> countBoardResults(const std::string &decision, const std::string &sinceTimestamp = "") const;

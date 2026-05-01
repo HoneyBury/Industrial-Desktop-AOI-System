@@ -30,7 +30,7 @@ set(AOI_HAS_OPENCV OFF)
 set(AOI_HAS_SQLITE OFF)
 
 if(AOI_ENABLE_GUI)
-  find_package(Qt6 QUIET COMPONENTS Widgets)
+  find_package(Qt6 QUIET COMPONENTS Widgets Sql Charts Concurrent Network Test)
   if(Qt6_FOUND)
     set(AOI_HAS_QT ON)
     set(CMAKE_AUTOMOC ON)
@@ -68,6 +68,10 @@ endif()
 add_library(aoi_core
   src/common/Logger.cpp
   src/config/AppSettings.cpp
+  src/boardscan/BoardViewTransform.cpp
+  src/boardscan/BoardScanPlanner.cpp
+  src/boardscan/BoardScanExecutor.cpp
+  src/boardscan/BoardStitcher.cpp
   src/camera/UsbCamera.cpp
   src/calibration/CameraIntrinsicCalibrator.cpp
   src/calibration/LaserOffsetCalibrator.cpp
@@ -94,6 +98,7 @@ add_library(aoi_core
   src/vision/CodeReader.cpp
   src/laser/VirtualLaserController.cpp
   src/motion/VirtualMotionController.cpp
+  src/transport/VirtualTransportController.cpp
   src/program/ProgramManager.cpp
   src/database/DatabaseManager.cpp
   src/ai/AiInferencer.cpp)
@@ -135,6 +140,8 @@ if(AOI_HAS_QT)
     src/ui/CadGraphicsView.h
     src/ui/CalibrationCaptureWidget.cpp
     src/ui/CalibrationCaptureWidget.h
+    src/ui/LaserOffsetCalibDialog.cpp
+    src/ui/LaserOffsetCalibDialog.h
     src/ui/CadRulerWidget.cpp
     src/ui/CadRulerWidget.h
     src/ui/CameraCalibDialog.cpp
@@ -145,6 +152,8 @@ if(AOI_HAS_QT)
     src/ui/SettingsDialog.h
     src/ui/ProgramEditDialog.cpp
     src/ui/ProgramEditDialog.h
+    src/ui/NewProgramDialog.cpp
+    src/ui/NewProgramDialog.h
     src/ui/MarkEditDialog.cpp
     src/ui/MarkEditDialog.h
     src/ui/MotionControlDialog.cpp
@@ -154,14 +163,31 @@ if(AOI_HAS_QT)
     src/ui/MarkOffsetDialog.cpp
     src/ui/MarkOffsetDialog.h
     src/ui/DataCollectDialog.cpp
-    src/ui/DataCollectDialog.h)
+    src/ui/DataCollectDialog.h
+    src/ui/ProductionHistoryDialog.cpp
+    src/ui/ProductionHistoryDialog.h)
+endif()
+
+if(AOI_HAS_QT)
+  # Disable the standalone host-writer example; we only need the support library.
+  set(LASERSPC_BUILD_HOST_WRITER_EXAMPLE OFF CACHE BOOL "" FORCE)
+  add_subdirectory(LaserSpc)
+
+  list(APPEND AOI_APP_SOURCES
+    src/spc/LaserSpcBridge.cpp
+    src/spc/LaserSpcBridge.h
+    src/spc/LaserSpcWindow.cpp
+    src/spc/LaserSpcWindow.h)
 endif()
 
 add_executable(industrial_desktop_aoi ${AOI_APP_SOURCES})
 target_link_libraries(industrial_desktop_aoi PRIVATE aoi_core)
 
 if(AOI_HAS_QT)
-  target_link_libraries(industrial_desktop_aoi PRIVATE Qt6::Widgets)
+  target_link_libraries(industrial_desktop_aoi PRIVATE
+    Qt6::Widgets
+    LaserSpcUi
+    LaserSpcHostWriterSupport)
 endif()
 
 install(TARGETS industrial_desktop_aoi

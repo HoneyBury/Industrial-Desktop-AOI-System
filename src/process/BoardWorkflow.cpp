@@ -2,6 +2,14 @@
 
 void BoardWorkflow::addStep(std::unique_ptr<IProcessStep> step) { steps_.push_back(std::move(step)); }
 
+const IProcessStep *BoardWorkflow::stepAt(const std::size_t index) const {
+  if (index >= steps_.size()) {
+    return nullptr;
+  }
+
+  return steps_[index].get();
+}
+
 WorkflowRunResult BoardWorkflow::run(WorkflowContext &context) const {
   return run(context, nullptr);
 }

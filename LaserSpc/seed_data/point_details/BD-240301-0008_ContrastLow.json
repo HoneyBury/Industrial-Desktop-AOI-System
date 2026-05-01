@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "data": {
+    "laserTemplatePath": "templates/Program-B/ContrastLow.tpl",
+    "laserContent": "B2-CONTRAST-LOW",
+    "readCodeContent": "READ-B2",
+    "success": false,
+    "programName": "Program-B",
+    "startTime": "2026-03-10T08:20:00",
+    "endTime": "2026-03-10T08:20:50"
+  }
+}

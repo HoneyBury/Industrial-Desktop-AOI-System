@@ -1,6 +1,7 @@
 #include "process/ImageCaptureStep.h"
 
 #include "alignment/MarkDetector.h"
+#include "coordinate/CoordinateTransformer.h"
 
 #include <sstream>
 
@@ -8,16 +9,74 @@ ImageCaptureStep::ImageCaptureStep(std::string stepId) : stepId_(std::move(stepI
 
 std::string ImageCaptureStep::id() const { return stepId_; }
 
-ProcessStepType ImageCaptureStep::type() const { return ProcessStepType::LoadBoard; }
+ProcessStepType ImageCaptureStep::type() const { return ProcessStepType::ImageCapture; }
 
 StepFailurePolicy ImageCaptureStep::failurePolicy() const { return StepFailurePolicy::StopWorkflow; }
 
 StepExecutionResult ImageCaptureStep::execute(WorkflowContext &context) const {
-  // 1. Capture a frame from the camera via callback
   std::string imagePath;
+  std::string captureSummary;
 
+  // ── Whole-board scan (if enabled) ──
+  if (context.program != nullptr && context.program->scanRecipe.enabled && context.captureWholeBoardScan) {
+    const auto scanResult = context.captureWholeBoardScan();
+    if (!scanResult) {
+      return StepExecutionResult {StepExecutionStatus::Failed,
+                                  "Whole-board scan failed: " + scanResult.message};
+    }
+
+    imagePath = scanResult.value.mosaicImagePath;
+    context.wholeBoardImagePath = scanResult.value.mosaicImagePath;
+    context.scanTileRows = scanResult.value.tileRows;
+    context.scanTileColumns = scanResult.value.tileColumns;
+    context.boardScanSummary = scanResult.value.summary;
+    context.capturedBoardTiles = scanResult.value.capturedTiles;
+    captureSummary = scanResult.value.summary;
+  }
+
+  // ── Per-ROI FOV capture ──
+  // When a motion controller is wired and the program defines ROIs, move to
+  // each ROI's mechanical position and capture a focused frame so that
+  // downstream inspection steps can use the per-ROI images.
+  if (context.program != nullptr && context.motionController != nullptr &&
+      context.captureFrame && !context.program->rois.empty()) {
+    CoordinateTransformer transformer;
+    int roiCaptureCount = 0;
+
+    for (const auto &roi : context.program->rois) {
+      if (!roi.enabled) {
+        continue;
+      }
+
+      const MillimeterPoint roiProductCenter {roi.x + roi.width / 2.0,
+                                              roi.y + roi.height / 2.0};
+      const MechanicalPose roiPose = transformer.productToMechanical(
+          roiProductCenter, context.currentMachinePose);
+
+      context.motionController->moveAbsolute(MotionAxis::X, roiPose.x);
+      context.motionController->moveAbsolute(MotionAxis::Y, roiPose.y);
+
+      const std::string roiImagePath = context.captureFrame();
+      if (!roiImagePath.empty()) {
+        context.capturedRoiImages[roi.name] = roiImagePath;
+        ++roiCaptureCount;
+      }
+    }
+
+    if (roiCaptureCount > 0) {
+      if (!captureSummary.empty()) {
+        captureSummary += " | ";
+      }
+      captureSummary +=
+          "Per-ROI captures: " + std::to_string(roiCaptureCount) + " ROI(s)";
+    }
+  }
+
+  // ── Fallback: single frame capture ──
   if (context.captureFrame) {
-    imagePath = context.captureFrame();
+    if (imagePath.empty()) {
+      imagePath = context.captureFrame();
+    }
   }
 
   if (imagePath.empty()) {
@@ -31,8 +90,7 @@ StepExecutionResult ImageCaptureStep::execute(WorkflowContext &context) const {
 
   context.currentImagePath = imagePath;
 
-  // 2. Run Mark detection on the captured frame, unless marks were
-  //    already injected (e.g. by a test harness or replay).
+  // ── Mark detection on the captured frame ──
   if (context.program == nullptr) {
     return StepExecutionResult {StepExecutionStatus::Failed, "Program context is missing for mark detection."};
   }
@@ -51,6 +109,9 @@ StepExecutionResult ImageCaptureStep::execute(WorkflowContext &context) const {
   }
 
   std::ostringstream stream;
+  if (!captureSummary.empty()) {
+    stream << captureSummary << " | ";
+  }
   stream << "Frame captured: " << imagePath
          << " | marks detected: " << context.measuredMarks.size();
 
