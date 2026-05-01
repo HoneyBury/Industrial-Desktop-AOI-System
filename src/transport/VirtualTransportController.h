@@ -40,6 +40,7 @@ public:
 
   /// 传送带当前速度（mm/s），供动画读取
   [[nodiscard]] double conveyorSpeed() const;
+  [[nodiscard]] double stopperTargetPosition() const;
 
 private:
   void updateMotionAxes();

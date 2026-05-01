@@ -1,11 +1,12 @@
 #pragma once
 
 #include "boardscan/BoardScanTypes.h"
-#include "camera/UsbCamera.h"
+#include "camera/VirtualCameraDevice.h"
 #include "config/AppSettings.h"
 #include "database/DatabaseManager.h"
 #include "laser/VirtualLaserController.h"
 #include "motion/VirtualMotionController.h"
+#include "motion/VirtualMotionSystem.h"
 #include "process/ProcessEngine.h"
 #include "program/ProgramManager.h"
 #include "transport/VirtualTransportController.h"
@@ -151,6 +152,7 @@ private:
   void runSingleWorkflowStep();
   void advanceWorkflowStep();
   void advanceWorkflowStepInternal(bool allowWhenPaused);
+  void tickVirtualDevices();
   void logCalibrationRecord(const CalibrationRecord &record);
 
   [[nodiscard]] QString projectRootPath() const;
@@ -158,16 +160,19 @@ private:
   [[nodiscard]] QImage currentCalibrationFrame() const;
   [[nodiscard]] MechanicalPose currentMechanicalPose() const;
   [[nodiscard]] QString cameraModeText() const;
+  [[nodiscard]] QString boardTransportStateText() const;
   [[nodiscard]] QString motionStateText() const;
+  [[nodiscard]] QString runModeOverlayText() const;
   [[nodiscard]] QString currentMarkShapeText() const;
   [[nodiscard]] QString currentMarkAlgorithmText() const;
   [[nodiscard]] QString currentRoiShapeText() const;
 
   Ui::MainWindow *ui_ {nullptr};
-  UsbCamera usbCamera_;
+  VirtualCameraDevice virtualCamera_;
   VirtualMotionController virtualMotionController_;
   VirtualLaserController virtualLaserController_;
   VirtualTransportController virtualTransportController_;
+  VirtualMotionSystem virtualMotionSystem_;
   ProgramManager programManager_;
   ProcessEngine processEngine_;
   DatabaseManager databaseManager_;
@@ -182,6 +187,7 @@ private:
   LogWindow *logWindow_ {nullptr};
   SettingsDialog *settingsDialog_ {nullptr};
   QTimer *cameraTimer_ {nullptr};
+  QTimer *simulationTimer_ {nullptr};
   QTimer *workflowTimer_ {nullptr};
   int cameraDeviceIndex_ {0};
   double cameraExposureMs_ {12.0};
@@ -201,6 +207,7 @@ private:
   WorkflowContext workflowContext_;
   int workflowStepIndex_ {0};
   int workflowTotalSteps_ {0};
+  QString workflowStepSummary_ {QStringLiteral("等待启动")};
   bool workflowRunning_ {false};
 
   // Editor widgets

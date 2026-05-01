@@ -8,10 +8,10 @@
 `Industrial-Desktop-AOI-System` 是一个用于面试展示的桌面级工业 AOI 视觉检测与虚拟运动校准系统。
 项目强调“工业 AOI、上位机、视觉标定、运动控制、AI 部署、企业级开发流程”六个关键词，目标不是一次性实现完整业务，而是先建立一套专业、清晰、可扩展、可展示的工程骨架。
 
-当前版本针对 MacBook M4 Pro 的现实开发环境做了工程化替代：
+当前版本针对本地演示环境做了工程化替代：
 
-- 使用 Mac 自带摄像头模拟工业相机
-- 使用虚拟运动控制器模拟 X/Y/Z/R 四轴平台
+- 使用虚拟整板相机替代工业相机与系统摄像头
+- 使用虚拟运动控制器模拟 X/Y/Z/R 四轴平台与运输挡板
 - 使用 Qt 6 + C++20 + CMake 搭建桌面工业软件基础框架
 - 使用 OpenCV、SQLite、GoogleTest、Python、YOLO/ONNX 预留后续算法与部署扩展
 
@@ -32,9 +32,10 @@
 
 项目采用分层模块化结构，便于后续从“可展示 Demo”平滑过渡到“可继续演进的工业软件原型”：
 
-- `camera`：相机抽象层，当前提供 `ICamera` 与 `UsbCamera`
+- `camera`：相机抽象层，当前提供 `ICamera`、`UsbCamera` 与 `VirtualCameraDevice`
 - `vision`：标定、Mark 检测、ROI 检测、读码、坐标转换
-- `motion`：运动控制抽象与虚拟 X/Y/Z/R 轴实现
+- `motion`：运动控制抽象、虚拟 X/Y/Z/R 轴与统一虚拟运控门面
+- `transport`：进板/出板/挡板运输状态机
 - `program`：检测程序定义、保存与加载
 - `database`：SQLite 数据管理入口
 - `ai`：ONNX 推理接口与 AI 检测结果封装
@@ -46,14 +47,24 @@
 
 ## 功能模块
 
-- 相机接入：使用 Mac 摄像头模拟工业相机采图链路
+- 虚拟相机：基于 `demoimage/board.png` 按当前机械坐标实时裁切 FOV，模拟“相机随平台运动观察整板”的效果
 - 视觉标定：支持棋盘格标定、像素与毫米映射、坐标转换
-- Mark 对位：支持双 Mark 角度偏移计算，并预留原点校正能力
+- Mark 对位：支持双 Mark 角度偏移计算，并已接入虚拟运控相机联动
+- 原点/运输语义：挡板位于工位右下侧，界面校正以挡板参考角点操作，内部换算为整板逻辑原点
 - ROI 检测：预留阈值、轮廓、模板检测扩展点
-- 运动控制：支持回零、绝对移动、相对移动、急停
+- 运动控制：支持回零、绝对移动、相对移动、急停、进板/出板/挡板联动
 - 程序管理：支持程序新建、编辑、保存、加载
 - 数据存储：预留程序、检测记录、AI 检测结果落库入口
 - AI 推理：提供 YOLO 训练到 ONNX 部署的工程骨架
+
+## 虚拟整板相机
+
+当前项目默认不访问 Mac 摄像头，而是使用虚拟整板相机：
+
+- 画面来源：`demoimage/board.png`
+- 取景方式：根据当前 `CameraX/CameraY/Z/R` 与板尺寸、FOV 尺寸、运输状态实时裁图
+- 运行效果：相机移动时，主界面预览、运行界面预览、整板扫描、标定对话框中的画面都会同步变化
+- 坐标语义：用户在工位右下挡板参考位操作，系统内部保存为整板逻辑原点，保证扫描规划和程序坐标仍保持一致
 
 ## 快速开始
 
@@ -106,6 +117,7 @@ cmake --build --preset release --parallel
 
 - `test_coordinate_transformer.cpp`
 - `test_virtual_motion_controller.cpp`
+- `test_virtual_camera_device.cpp`
 - `test_mark_offset.cpp`
 - `test_inspection_pipeline.cpp`
 
@@ -114,6 +126,7 @@ cmake --build --preset release --parallel
 - 像素偏移到毫米的转换
 - 虚拟轴绝对移动
 - 虚拟轴相对移动
+- 虚拟整板相机随机械坐标切换不同 FOV
 - 双 Mark 点角度计算
 - AOI 主流程的最小集成验证
 
@@ -129,7 +142,7 @@ cmake --build --preset release --parallel
 推荐展示顺序如下：
 
 1. 打开主界面，介绍 AOI 上位机模块划分
-2. 说明 Mac 摄像头与虚拟运动平台的工程化替代方案
+2. 说明虚拟整板相机与虚拟运动平台的工程化替代方案
 3. 演示标定、Mark 对位、ROI、程序管理与 AI 部署设计
 4. 展示 GoogleTest、GitHub Actions、分支策略与代码审查流程
 5. 说明未来如何扩展到海康/大华相机与真实运动控制卡
@@ -138,7 +151,7 @@ cmake --build --preset release --parallel
 
 ## 当前限制
 
-- 当前使用 Mac 摄像头模拟工业相机
+- 当前使用虚拟整板相机模拟工业相机
 - 当前使用虚拟轴模拟真实运动控制器
 - AI 推理、数据库与视觉算法目前以可编译骨架和最小实现为主
 
@@ -153,7 +166,7 @@ cmake --build --preset release --parallel
 ## 项目路线图
 
 - `v0.1`：企业级项目骨架、文档、CI/CD、测试基线
-- `v0.2`：相机采集、虚拟运动联动、标定流程联调
+- `v0.2`：虚拟整板相机、虚拟运动联动、标定流程联调
 - `v0.3`：程序编辑器、Mark 对位、ROI 检测
 - `v0.4`：AI 数据采集、YOLO 训练、ONNX 推理接入
 - `v0.5`：检测记录存储、结果看板、Demo 优化

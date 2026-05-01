@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "motion/VirtualMotionController.h"
+#include "motion/VirtualMotionSystem.h"
+#include "transport/VirtualTransportController.h"
 
 namespace {
 void tickUntilDone(VirtualMotionController &controller, MotionAxis axis, int maxTicks = 200) {
@@ -51,4 +53,31 @@ TEST(VirtualMotionControllerTest, EmergencyStopBlocksMotionUntilReset) {
   ASSERT_TRUE(controller.moveAbsolute(MotionAxis::CameraX, 50.0));
   tickUntilDone(controller, MotionAxis::CameraX);
   EXPECT_NEAR(controller.position(MotionAxis::CameraX).value(), 50.0, 1e-9);
+}
+
+TEST(VirtualMotionSystemTest, MoveCameraPoseBlocksUntilAxesReachTarget) {
+  VirtualMotionController controller;
+  VirtualTransportController transport;
+  VirtualMotionSystem system(controller, transport);
+
+  ASSERT_TRUE(system.moveCameraPose(MechanicalPose {120.0, 45.0, 6.0, 12.0}, 150.0, 5.0));
+  const MechanicalPose pose = system.currentCameraPose();
+  EXPECT_NEAR(pose.x, 120.0, 1e-9);
+  EXPECT_NEAR(pose.y, 45.0, 1e-9);
+  EXPECT_NEAR(pose.z, 6.0, 1e-9);
+  EXPECT_NEAR(pose.r, 12.0, 1e-9);
+}
+
+TEST(VirtualMotionSystemTest, WaitsForTransportStateTransitions) {
+  VirtualMotionController controller;
+  VirtualTransportController transport;
+  VirtualMotionSystem system(controller, transport);
+
+  ASSERT_TRUE(system.loadBoard());
+  EXPECT_TRUE(system.waitForBoardReady(5.0));
+  EXPECT_EQ(system.transportController().state(), BoardTransportState::BoardReady);
+
+  ASSERT_TRUE(system.unloadBoard());
+  EXPECT_TRUE(system.waitForTransportIdle(8.0));
+  EXPECT_EQ(system.transportController().state(), BoardTransportState::Idle);
 }

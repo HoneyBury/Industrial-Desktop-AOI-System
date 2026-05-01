@@ -18,7 +18,7 @@ CameraCalibDialog::CameraCalibDialog(QWidget *parent) : QDialog(parent) {
   auto *rootLayout = new QVBoxLayout(this);
 
   auto *summaryLabel = new QLabel(
-      QStringLiteral("配置当前演示环境使用的相机参数。当前项目默认使用 Mac 摄像头或无 OpenCV 环境下的模拟采图。"),
+      QStringLiteral("配置当前演示环境使用的虚拟整板相机参数。系统会根据整板图、当前 FOV 和运控坐标实时生成画面。"),
       this);
   summaryLabel->setWordWrap(true);
   rootLayout->addWidget(summaryLabel);
@@ -48,8 +48,8 @@ CameraCalibDialog::CameraCalibDialog(QWidget *parent) : QDialog(parent) {
 
   auto *noteGroupBox = new QGroupBox(QStringLiteral("说明"), this);
   auto *noteLayout = new QVBoxLayout(noteGroupBox);
-  noteLayout->addWidget(new QLabel(QStringLiteral("1. 当前参数主要用于演示流程配置与状态说明。"), noteGroupBox));
-  noteLayout->addWidget(new QLabel(QStringLiteral("2. 后续可对接真实海康/大华 SDK 参数读写。"), noteGroupBox));
+  noteLayout->addWidget(new QLabel(QStringLiteral("1. 分辨率会直接影响虚拟相机输出帧大小和 FOV 预览效果。"), noteGroupBox));
+  noteLayout->addWidget(new QLabel(QStringLiteral("2. 设备索引在虚拟模式下仅保留兼容字段，当前不会访问系统摄像头。"), noteGroupBox));
   rootLayout->addWidget(noteGroupBox);
 
   auto *buttonBox =

@@ -36,6 +36,9 @@ public:
   void setAxisDoneCallback(AxisDoneCallback callback) override;
   void tick(double deltaSec) override;
 
+  /// 仅供虚拟设备仿真同步内部轴状态使用，直接写入当前位置并清除该轴运动态。
+  void setAxisPosition(MotionAxis axis, double position);
+
 private:
   std::unordered_map<MotionAxis, VirtualAxis> axes_;
   AxisDoneCallback axisDoneCallback_;

@@ -98,4 +98,9 @@ struct WorkflowContext {
   // Whole-board scan callback: captures/stitches a complete board image.
   using WholeBoardScanCallback = std::function<BoardScanCaptureWorkflowResult()>;
   WholeBoardScanCallback captureWholeBoardScan;
+
+  // Camera pose movement callback: used by workflow/business steps to move the
+  // simulated or real camera axes as a single business action.
+  using MoveCameraPoseCallback = std::function<bool(const MechanicalPose &, const std::string &)>;
+  MoveCameraPoseCallback moveCameraPose;
 };

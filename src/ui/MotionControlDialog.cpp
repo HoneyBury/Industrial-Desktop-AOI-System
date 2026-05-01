@@ -8,12 +8,14 @@
 #include <array>
 #include <QDateTime>
 #include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QTextEdit>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -72,10 +74,12 @@ constexpr const char *kHintLabelStyle =
 
 } // namespace
 
-MotionControlDialog::MotionControlDialog(VirtualMotionController *motion,
-                                         VirtualTransportController *transport,
+MotionControlDialog::MotionControlDialog(VirtualMotionSystem *motionSystem,
                                          QWidget *parent)
-    : QDialog(parent), motion_(motion), transport_(transport) {
+    : QDialog(parent),
+      motionSystem_(motionSystem),
+      motion_(motionSystem != nullptr ? &motionSystem->motionController() : nullptr),
+      transport_(motionSystem != nullptr ? &motionSystem->transportController() : nullptr) {
   setWindowTitle(QStringLiteral("运动控制与虚拟设备调试"));
   resize(1100, 900);
 
@@ -148,13 +152,6 @@ void MotionControlDialog::buildUi() {
   zoomBar->addWidget(zoomInBtn);
   zoomBar->addWidget(fitBtn);
 
-  connect(zoomInBtn, &QPushButton::clicked, animationWidget_, &AnimationWidget::zoomIn);
-  connect(zoomOutBtn, &QPushButton::clicked, animationWidget_, &AnimationWidget::zoomOut);
-  connect(fitBtn, &QPushButton::clicked, animationWidget_, &AnimationWidget::fitToWindow);
-  connect(animationWidget_, &AnimationWidget::zoomChanged, this, [this](int pct) {
-    zoomValueLabel_->setText(QStringLiteral("%1%").arg(pct));
-  });
-
   rootLayout->addLayout(zoomBar);
 
   // ── 设备动画区 ──
@@ -164,7 +161,52 @@ void MotionControlDialog::buildUi() {
   animationWidget_->setMotionController(motion_);
   animationWidget_->setTransportController(transport_);
 
+  connect(zoomInBtn, &QPushButton::clicked, animationWidget_, &AnimationWidget::zoomIn);
+  connect(zoomOutBtn, &QPushButton::clicked, animationWidget_, &AnimationWidget::zoomOut);
+  connect(fitBtn, &QPushButton::clicked, animationWidget_, &AnimationWidget::fitToWindow);
+  connect(animationWidget_, &AnimationWidget::zoomChanged, this, [this](int pct) {
+    zoomValueLabel_->setText(QStringLiteral("%1%").arg(pct));
+  });
+
   rootLayout->addWidget(animationWidget_, 1);
+
+  auto *boardGroup = new QGroupBox(QStringLiteral("轨道调宽 / 板尺寸"), contentWidget);
+  boardGroup->setStyleSheet(kGroupBoxStyle);
+  auto *boardLayout = new QVBoxLayout(boardGroup);
+  boardLayout->setSpacing(10);
+
+  auto *boardForm = new QFormLayout;
+  boardForm->setSpacing(8);
+  boardLengthSpinBox_ = buildTargetSpinBox(MotionAxis::CameraX);
+  boardLengthSpinBox_->setRange(50.0, 1500.0);
+  boardLengthSpinBox_->setValue(programBoardDefinition_.boardLengthMm);
+  boardLengthSpinBox_->setSuffix(QStringLiteral(" mm"));
+  boardWidthSpinBox_ = buildTargetSpinBox(MotionAxis::CameraY);
+  boardWidthSpinBox_->setRange(10.0, 1000.0);
+  boardWidthSpinBox_->setValue(programBoardDefinition_.boardWidthMm);
+  boardWidthSpinBox_->setSuffix(QStringLiteral(" mm"));
+  railWidthSpinBox_ = buildTargetSpinBox(MotionAxis::Stopper);
+  railWidthSpinBox_->setRange(5.0, 300.0);
+  railWidthSpinBox_->setValue(programBoardDefinition_.railWidthMm);
+  railWidthSpinBox_->setSuffix(QStringLiteral(" mm"));
+  boardForm->addRow(QStringLiteral("板长"), boardLengthSpinBox_);
+  boardForm->addRow(QStringLiteral("板宽"), boardWidthSpinBox_);
+  boardForm->addRow(QStringLiteral("轨道宽度"), railWidthSpinBox_);
+  boardLayout->addLayout(boardForm);
+
+  auto *boardButtonRow = new QHBoxLayout;
+  auto *restoreProgramBoardBtn = new QPushButton(QStringLiteral("按当前程序尺寸"), contentWidget);
+  restoreProgramBoardBtn->setStyleSheet(kActionBtnStyle);
+  boardButtonRow->addWidget(restoreProgramBoardBtn);
+  boardButtonRow->addStretch();
+  boardLayout->addLayout(boardButtonRow);
+
+  boardDefinitionHintLabel_ = new QLabel(boardGroup);
+  boardDefinitionHintLabel_->setWordWrap(true);
+  boardDefinitionHintLabel_->setStyleSheet(QLatin1StringView(kHintLabelStyle));
+  boardLayout->addWidget(boardDefinitionHintLabel_);
+
+  rootLayout->addWidget(boardGroup);
 
   // ── IO 控制面板 ──
   auto *ioGroup = new QGroupBox(QStringLiteral("IO 控制 — 进板/出板/挡板"), contentWidget);
@@ -361,6 +403,13 @@ void MotionControlDialog::buildUi() {
   connect(loadBoardBtn, &QPushButton::clicked, this, &MotionControlDialog::loadBoard);
   connect(unloadBoardBtn, &QPushButton::clicked, this, &MotionControlDialog::unloadBoard);
   connect(resetBoardBtn, &QPushButton::clicked, this, &MotionControlDialog::resetBoard);
+  connect(restoreProgramBoardBtn, &QPushButton::clicked, this, &MotionControlDialog::restoreProgramBoardDefinition);
+  connect(boardLengthSpinBox_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+          this, [this](double) { handleBoardDefinitionInputsChanged(); });
+  connect(boardWidthSpinBox_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+          this, [this](double) { handleBoardDefinitionInputsChanged(); });
+  connect(railWidthSpinBox_, qOverload<double>(&QDoubleSpinBox::valueChanged),
+          this, [this](double) { handleBoardDefinitionInputsChanged(); });
 
   connect(emergencyStopButton_, &QPushButton::clicked, this, [this] {
     motion_->emergencyStop();
@@ -379,6 +428,8 @@ void MotionControlDialog::buildUi() {
     emit motionStateChanged();
     emit motionLogGenerated(QStringLiteral("已复位急停。"));
   });
+
+  applyBoardDefinition(programBoardDefinition_, true, false);
 }
 
 void MotionControlDialog::refreshUi() {
@@ -417,7 +468,7 @@ void MotionControlDialog::appendLog(const QString &message) {
 // ── IO 操作 ──
 
 void MotionControlDialog::raiseStopper() {
-  if (transport_ != nullptr && transport_->raiseStopper()) {
+  if (motionSystem_ != nullptr && motionSystem_->raiseStopper()) {
     appendLog(QStringLiteral("挡板上升。"));
   } else {
     appendLog(QStringLiteral("挡板上升失败。"));
@@ -426,7 +477,7 @@ void MotionControlDialog::raiseStopper() {
 }
 
 void MotionControlDialog::lowerStopper() {
-  if (transport_ != nullptr && transport_->lowerStopper()) {
+  if (motionSystem_ != nullptr && motionSystem_->lowerStopper()) {
     appendLog(QStringLiteral("挡板下降。"));
   } else {
     appendLog(QStringLiteral("挡板下降失败。"));
@@ -435,8 +486,10 @@ void MotionControlDialog::lowerStopper() {
 }
 
 void MotionControlDialog::loadBoard() {
-  if (transport_ != nullptr && transport_->loadBoard()) {
-    appendLog(QStringLiteral("进板已启动，传送带运行中..."));
+  if (motionSystem_ != nullptr && motionSystem_->loadBoard()) {
+    const bool ready = motionSystem_->waitForBoardReady(8.0);
+    appendLog(ready ? QStringLiteral("进板完成，板已到位。")
+                    : QStringLiteral("进板已启动，但等待到位超时。"));
   } else {
     appendLog(QStringLiteral("进板失败：%1").arg(
         transport_ != nullptr ? QString::fromStdString(transport_->lastSignalMessage())
@@ -446,8 +499,10 @@ void MotionControlDialog::loadBoard() {
 }
 
 void MotionControlDialog::unloadBoard() {
-  if (transport_ != nullptr && transport_->unloadBoard()) {
-    appendLog(QStringLiteral("出板已启动，传送带运行中..."));
+  if (motionSystem_ != nullptr && motionSystem_->unloadBoard()) {
+    const bool idle = motionSystem_->waitForTransportIdle(8.0);
+    appendLog(idle ? QStringLiteral("出板完成，运输机构已回到待机。")
+                   : QStringLiteral("出板已启动，但等待待机超时。"));
   } else {
     appendLog(QStringLiteral("出板失败：%1").arg(
         transport_ != nullptr ? QString::fromStdString(transport_->lastSignalMessage())
@@ -457,18 +512,29 @@ void MotionControlDialog::unloadBoard() {
 }
 
 void MotionControlDialog::resetBoard() {
-  if (transport_ != nullptr) {
-    transport_->resetBoardReadySignal();
+  if (motionSystem_ != nullptr) {
+    motionSystem_->resetBoardTransport();
     appendLog(QStringLiteral("已复位板到位信号。"));
   }
   refreshUi();
+}
+
+void MotionControlDialog::restoreProgramBoardDefinition() {
+  boardDefinitionManualOverride_ = false;
+  applyBoardDefinition(programBoardDefinition_, true, false);
+  appendLog(QStringLiteral("已恢复到当前程序的板尺寸与轨道宽度。"));
+}
+
+void MotionControlDialog::handleBoardDefinitionInputsChanged() {
+  applyBoardDefinition(boardDefinitionFromInputs(), false, true);
 }
 
 // ── 轴操作 ──
 
 void MotionControlDialog::moveAbsolute(const MotionAxis axis) {
   const double target = targetSpinBox(axis)->value();
-  const bool ok = motion_ != nullptr && motion_->moveAbsolute(axis, target);
+  const bool ok = motionSystem_ != nullptr ? motionSystem_->moveAxis(axis, target)
+                                           : (motion_ != nullptr && motion_->moveAbsolute(axis, target));
   appendLog(ok ? QStringLiteral("%1 轴绝对移动到 %2。").arg(axisName(axis)).arg(target, 0, 'f', 3)
                : QStringLiteral("%1 轴绝对移动失败。").arg(axisName(axis)));
   refreshUi();
@@ -479,7 +545,8 @@ void MotionControlDialog::moveAbsolute(const MotionAxis axis) {
 
 void MotionControlDialog::jog(const MotionAxis axis, const double direction) {
   const double delta = stepSpinBox(axis)->value() * direction;
-  const bool ok = motion_ != nullptr && motion_->moveRelative(axis, delta);
+  const bool ok = motionSystem_ != nullptr ? motionSystem_->jogAxis(axis, delta)
+                                           : (motion_ != nullptr && motion_->moveRelative(axis, delta));
   appendLog(ok ? QStringLiteral("%1 轴相对移动 %2。").arg(axisName(axis)).arg(delta, 0, 'f', 3)
                : QStringLiteral("%1 轴点动失败。").arg(axisName(axis)));
   refreshUi();
@@ -489,7 +556,8 @@ void MotionControlDialog::jog(const MotionAxis axis, const double direction) {
 }
 
 void MotionControlDialog::home(const MotionAxis axis) {
-  const bool ok = motion_ != nullptr && motion_->home(axis);
+  const bool ok = motionSystem_ != nullptr ? motionSystem_->homeAxis(axis)
+                                           : (motion_ != nullptr && motion_->home(axis));
   appendLog(ok ? QStringLiteral("%1 轴已回零。").arg(axisName(axis))
                : QStringLiteral("%1 轴回零失败。").arg(axisName(axis)));
   refreshUi();
@@ -560,6 +628,59 @@ QLabel *MotionControlDialog::stateLabel(const MotionAxis axis) const {
   default:                  break;
   }
   return xStateValueLabel_;
+}
+
+void MotionControlDialog::setProgramBoardDefinition(const BoardDefinition &definition) {
+  programBoardDefinition_ = definition;
+  if (!boardDefinitionManualOverride_) {
+    applyBoardDefinition(programBoardDefinition_, true, false);
+  } else {
+    updateBoardDefinitionHint();
+  }
+}
+
+BoardDefinition MotionControlDialog::boardDefinitionFromInputs() const {
+  return BoardDefinition {
+      boardLengthSpinBox_ != nullptr ? boardLengthSpinBox_->value() : programBoardDefinition_.boardLengthMm,
+      boardWidthSpinBox_ != nullptr ? boardWidthSpinBox_->value() : programBoardDefinition_.boardWidthMm,
+      railWidthSpinBox_ != nullptr ? railWidthSpinBox_->value() : programBoardDefinition_.railWidthMm,
+  };
+}
+
+void MotionControlDialog::applyBoardDefinition(const BoardDefinition &definition,
+                                               const bool syncInputs,
+                                               const bool markManualOverride) {
+  boardDefinitionManualOverride_ = markManualOverride;
+  if (syncInputs) {
+    const QSignalBlocker blockerLength(boardLengthSpinBox_);
+    const QSignalBlocker blockerWidth(boardWidthSpinBox_);
+    const QSignalBlocker blockerRail(railWidthSpinBox_);
+    boardLengthSpinBox_->setValue(definition.boardLengthMm);
+    boardWidthSpinBox_->setValue(definition.boardWidthMm);
+    railWidthSpinBox_->setValue(definition.railWidthMm);
+  }
+
+  if (animationWidget_ != nullptr) {
+    animationWidget_->setBoardDefinition(definition);
+  }
+  updateBoardDefinitionHint();
+}
+
+void MotionControlDialog::updateBoardDefinitionHint() {
+  if (boardDefinitionHintLabel_ == nullptr) return;
+
+  const BoardDefinition activeDefinition = boardDefinitionFromInputs();
+  const QString activeSource = boardDefinitionManualOverride_ ? QStringLiteral("手动调宽预览中")
+                                                              : QStringLiteral("已跟随当前程序");
+  boardDefinitionHintLabel_->setText(
+      QStringLiteral("%1：板长=%2 mm，板宽=%3 mm，轨道=%4 mm。程序基准：长=%5 / 宽=%6 / 轨=%7 mm")
+          .arg(activeSource)
+          .arg(activeDefinition.boardLengthMm, 0, 'f', 1)
+          .arg(activeDefinition.boardWidthMm, 0, 'f', 1)
+          .arg(activeDefinition.railWidthMm, 0, 'f', 1)
+          .arg(programBoardDefinition_.boardLengthMm, 0, 'f', 1)
+          .arg(programBoardDefinition_.boardWidthMm, 0, 'f', 1)
+          .arg(programBoardDefinition_.railWidthMm, 0, 'f', 1));
 }
 
 #endif

@@ -6,7 +6,8 @@
 
 BoardScanExecutionResult BoardScanExecutor::execute(const PlannedBoardScan &plan,
                                                     IMotionController &motionController,
-                                                    const CaptureTileCallback &captureTile) const {
+                                                    const CaptureTileCallback &captureTile,
+                                                    const MoveToPoseCallback &moveToPose) const {
   if (!captureTile) {
     return BoardScanExecutionResult::failure("Capture callback is missing.");
   }
@@ -18,10 +19,13 @@ BoardScanExecutionResult BoardScanExecutor::execute(const PlannedBoardScan &plan
   tiles.reserve(plan.poses.size());
 
   for (const auto &pose : plan.poses) {
-    if (!motionController.moveAbsolute(MotionAxis::CameraX, pose.machinePose.x) ||
-        !motionController.moveAbsolute(MotionAxis::CameraY, pose.machinePose.y) ||
-        !motionController.moveAbsolute(MotionAxis::Z, pose.machinePose.z) ||
-        !motionController.moveAbsolute(MotionAxis::R, pose.machinePose.r)) {
+    const bool moveOk = moveToPose
+                            ? moveToPose(pose.machinePose)
+                            : (motionController.moveAbsolute(MotionAxis::CameraX, pose.machinePose.x) &&
+                               motionController.moveAbsolute(MotionAxis::CameraY, pose.machinePose.y) &&
+                               motionController.moveAbsolute(MotionAxis::Z, pose.machinePose.z) &&
+                               motionController.moveAbsolute(MotionAxis::R, pose.machinePose.r));
+    if (!moveOk) {
       std::ostringstream stream;
       stream << "Failed to move to scan tile r" << pose.row << " c" << pose.column << ".";
       return BoardScanExecutionResult::failure(stream.str());

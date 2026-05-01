@@ -9,6 +9,7 @@
 #include <QTimer>
 
 class ITransportController;
+struct BoardDefinition;
 
 /// 设备动画 Widget — 封装 QGraphicsView + DeviceAnimationScene + 60fps Timer
 ///
@@ -31,6 +32,7 @@ public:
   void setStopperUp(bool up);
   void setAlarm(bool active);
   void setDeviceStateText(const QString &text);
+  void setBoardDefinition(const BoardDefinition &definition);
 
   /// 缩放控制
   void zoomIn();

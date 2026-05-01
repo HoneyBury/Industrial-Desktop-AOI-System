@@ -10,6 +10,7 @@
 #include <QGraphicsPixmapItem>
 #include <QGraphicsScene>
 #include <QGraphicsView>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -17,6 +18,7 @@
 #include <QPainter>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QSplitter>
 #include <QTextEdit>
@@ -92,6 +94,11 @@ void RunModeWidget::setFrameProvider(FrameProvider provider) { frameProvider_ = 
 
 void RunModeWidget::setBoardCountProvider(BoardCountProvider provider) { boardCountProvider_ = std::move(provider); }
 
+void RunModeWidget::setStatusTextProvider(StatusTextProvider provider) {
+  statusTextProvider_ = std::move(provider);
+  refreshPreviewOverlay();
+}
+
 void RunModeWidget::setTotalBoards(const int count) {
   totalBoards_ = count;
   refreshDashboard();
@@ -117,6 +124,8 @@ void RunModeWidget::appendProductionLog(const QString &message) {
   if (scrollBar != nullptr) {
     scrollBar->setValue(scrollBar->maximum());
   }
+
+  refreshPreviewOverlay();
 }
 
 void RunModeWidget::updateStepProgress(const QString &stepName, const int stepIndex, const int totalSteps) {
@@ -135,6 +144,8 @@ void RunModeWidget::updateStepProgress(const QString &stepName, const int stepIn
   if (workflowStateLabel_ != nullptr) {
     workflowStateLabel_->setText(stepName);
   }
+
+  refreshPreviewOverlay();
 }
 
 void RunModeWidget::recordBoardResult(const bool ok) {
@@ -169,6 +180,7 @@ void RunModeWidget::recordBoardResult(const bool ok) {
 
   const QString resultText = ok ? QStringLiteral("OK") : QStringLiteral("NG");
   appendProductionLog(QStringLiteral("板 #%1 检测完成，结果：%2").arg(currentBoardIndex_).arg(resultText));
+  refreshPreviewOverlay();
 }
 
 int RunModeWidget::okCount() const { return okCount_; }
@@ -195,7 +207,24 @@ void RunModeWidget::buildUi() {
   auto *rightLayout = new QVBoxLayout(rightWidget);
   rightLayout->setContentsMargins(0, 0, 0, 0);
   rightLayout->setSpacing(8);
-  buildDashboard(rightLayout);
+
+  dashboardScrollArea_ = new QScrollArea(rightWidget);
+  dashboardScrollArea_->setWidgetResizable(true);
+  dashboardScrollArea_->setFrameShape(QFrame::NoFrame);
+  dashboardScrollArea_->setStyleSheet(QStringLiteral(
+      "QScrollArea { background: transparent; border: none; }"
+      "QScrollBar:vertical { background: #0f172a; width: 8px; border-radius: 4px; }"
+      "QScrollBar::handle:vertical { background: #334155; border-radius: 4px; min-height: 24px; }"
+      "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"));
+  auto *dashboardContent = new QWidget(dashboardScrollArea_);
+  dashboardContent->setStyleSheet(QStringLiteral("background: transparent;"));
+  auto *dashboardContentLayout = new QVBoxLayout(dashboardContent);
+  dashboardContentLayout->setContentsMargins(0, 0, 0, 0);
+  dashboardContentLayout->setSpacing(8);
+  buildDashboard(dashboardContentLayout);
+  dashboardContentLayout->addStretch();
+  dashboardScrollArea_->setWidget(dashboardContent);
+  rightLayout->addWidget(dashboardScrollArea_);
 
   splitter->addWidget(leftWidget);
   splitter->addWidget(rightWidget);
@@ -214,6 +243,9 @@ void RunModeWidget::buildLockedPreview(QBoxLayout *parentLayout) {
   auto *previewGroup = new QGroupBox(QString::fromUtf8("实时预览（锁定）"), this);
   auto *previewLayout = new QVBoxLayout(previewGroup);
   previewLayout->setContentsMargins(4, 8, 4, 4);
+  auto *previewFrame = new QFrame(previewGroup);
+  auto *previewFrameLayout = new QGridLayout(previewFrame);
+  previewFrameLayout->setContentsMargins(0, 0, 0, 0);
 
   previewScene_ = new QGraphicsScene(previewGroup);
   previewView_ = new QGraphicsView(previewScene_, previewGroup);
@@ -233,18 +265,35 @@ void RunModeWidget::buildLockedPreview(QBoxLayout *parentLayout) {
   fitPreviewContent();
 
   // Overlay status text
-  auto *overlayLabel = new QLabel(QString::fromUtf8("锁定模式 - 运行中自动刷新"), previewGroup);
-  overlayLabel->setAlignment(Qt::AlignRight | Qt::AlignTop);
-  overlayLabel->setStyleSheet(QStringLiteral(
+  previewOverlayLabel_ = new QLabel(QString::fromUtf8("等待运行数据"), previewFrame);
+  previewOverlayLabel_->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+  previewOverlayLabel_->setWordWrap(true);
+  previewOverlayLabel_->setMinimumWidth(300);
+  previewOverlayLabel_->setMaximumWidth(380);
+  previewOverlayLabel_->setMargin(0);
+  previewOverlayLabel_->setAttribute(Qt::WA_TransparentForMouseEvents);
+  previewOverlayLabel_->setStyleSheet(QStringLiteral(
       "QLabel { background: rgba(15, 23, 42, 0.85); color: #facc15; padding: 4px 12px; "
-      "  border-radius: 6px; font-size: 11px; font-weight: 600; }"));
+      "  border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 1.4; }"));
 
-  previewLayout->addWidget(previewView_);
+  previewFrameLayout->addWidget(previewView_, 0, 0);
+  previewFrameLayout->addWidget(previewOverlayLabel_, 0, 0, Qt::AlignTop | Qt::AlignRight);
+  previewLayout->addWidget(previewFrame);
+  refreshPreviewOverlay();
 
   parentLayout->addWidget(previewGroup);
 }
 
 void RunModeWidget::buildDashboard(QBoxLayout *parentLayout) {
+  auto *headerGroup = new QGroupBox(QString::fromUtf8("运行总览"), this);
+  auto *headerLayout = new QVBoxLayout(headerGroup);
+  headerLayout->setContentsMargins(12, 18, 12, 12);
+  headerLayout->setSpacing(4);
+  auto *headerTitle = new QLabel(QString::fromUtf8("生产运行界面"), headerGroup);
+  headerTitle->setStyleSheet(QStringLiteral("color: #f8fafc; font-size: 18px; font-weight: 700;"));
+  headerLayout->addWidget(headerTitle);
+  parentLayout->addWidget(headerGroup);
+
   // Production stats
   auto *statsGroup = new QGroupBox(QString::fromUtf8("生产数据看板"), this);
   auto *statsLayout = new QGridLayout(statsGroup);
@@ -374,7 +423,7 @@ void RunModeWidget::buildDashboard(QBoxLayout *parentLayout) {
       "QPushButton:hover { background: #22c55e; }"
       "QPushButton:disabled { background: #1e293b; color: #475569; border-color: #334155; }"));
 
-  stopButton_ = new QPushButton(QString::fromUtf8("停止"), controlGroup);
+  stopButton_ = new QPushButton(QString::fromUtf8("停止运行"), controlGroup);
   stopButton_->setStyleSheet(QStringLiteral(
       "QPushButton { background: #b91c1c; color: #f8fafc; border: 1px solid #ef4444; border-radius: 8px; "
       "  padding: 8px 20px; min-height: 34px; font-weight: 700; font-size: 13px; }"
@@ -422,10 +471,11 @@ void RunModeWidget::buildDashboard(QBoxLayout *parentLayout) {
     pauseButton_->setEnabled(true);
     singleStepButton_->setEnabled(true);
     appendProductionLog(QString::fromUtf8("运行已启动"));
+    refreshPreviewOverlay();
     emit startRequested();
   });
 
-  connect(stopButton_, &QPushButton::clicked, this, [this] {
+  auto stopRun = [this] {
     running_ = false;
     previewTimer_->stop();
     startButton_->setEnabled(true);
@@ -433,8 +483,11 @@ void RunModeWidget::buildDashboard(QBoxLayout *parentLayout) {
     pauseButton_->setEnabled(false);
     singleStepButton_->setEnabled(false);
     appendProductionLog(QString::fromUtf8("运行已停止"));
+    refreshPreviewOverlay();
     emit stopRequested();
-  });
+  };
+
+  connect(stopButton_, &QPushButton::clicked, this, stopRun);
 
   connect(pauseButton_, &QPushButton::clicked, this, [this] {
     running_ = false;
@@ -442,11 +495,13 @@ void RunModeWidget::buildDashboard(QBoxLayout *parentLayout) {
     startButton_->setEnabled(true);
     pauseButton_->setEnabled(false);
     appendProductionLog(QString::fromUtf8("运行已暂停"));
+    refreshPreviewOverlay();
     emit pauseRequested();
   });
 
   connect(singleStepButton_, &QPushButton::clicked, this, [this] {
     appendProductionLog(QString::fromUtf8("执行单步..."));
+    refreshPreviewOverlay();
     emit singleStepRequested();
   });
 
@@ -470,6 +525,17 @@ void RunModeWidget::refreshPreview() {
       frame.scaled(kPreviewWidth, kPreviewHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation));
   previewPixmapItem_->setPixmap(pixmap);
   fitPreviewContent();
+  refreshPreviewOverlay();
+}
+
+void RunModeWidget::refreshPreviewOverlay() {
+  if (previewOverlayLabel_ == nullptr) {
+    return;
+  }
+
+  const QString overlayText = statusTextProvider_ ? statusTextProvider_().trimmed()
+                                                  : QStringLiteral("等待运行数据");
+  previewOverlayLabel_->setText(overlayText.isEmpty() ? QStringLiteral("等待运行数据") : overlayText);
 }
 
 void RunModeWidget::refreshDashboard() {
@@ -488,6 +554,8 @@ void RunModeWidget::refreshDashboard() {
   if (totalBoardsLabel_ != nullptr) {
     totalBoardsLabel_->setText(QString::number(totalBoards_));
   }
+
+  refreshPreviewOverlay();
 }
 
 #endif

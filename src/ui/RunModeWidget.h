@@ -20,6 +20,7 @@ class QGraphicsPixmapItem;
 class QLabel;
 class QProgressBar;
 class QPushButton;
+class QScrollArea;
 class QTextEdit;
 class QTimer;
 
@@ -29,12 +30,14 @@ class RunModeWidget final : public QFrame {
 public:
   using FrameProvider = std::function<QImage()>;
   using BoardCountProvider = std::function<int()>;
+  using StatusTextProvider = std::function<QString()>;
 
   explicit RunModeWidget(QWidget *parent = nullptr);
   ~RunModeWidget() override;
 
   void setFrameProvider(FrameProvider provider);
   void setBoardCountProvider(BoardCountProvider provider);
+  void setStatusTextProvider(StatusTextProvider provider);
   void setTotalBoards(int count);
   void fitPreviewContent();
 
@@ -57,12 +60,14 @@ private:
   void buildLockedPreview(QBoxLayout *parentLayout);
   void buildDashboard(QBoxLayout *parentLayout);
   void refreshPreview();
+  void refreshPreviewOverlay();
   void refreshDashboard();
 
   // Left: locked preview
   QGraphicsView *previewView_ {nullptr};
   QGraphicsScene *previewScene_ {nullptr};
   QGraphicsPixmapItem *previewPixmapItem_ {nullptr};
+  QLabel *previewOverlayLabel_ {nullptr};
   QTimer *previewTimer_ {nullptr};
 
   // Right: stats dashboard
@@ -86,9 +91,11 @@ private:
   QChart *yieldChart_ {nullptr};
   QLineSeries *yieldSeries_ {nullptr};
   int yieldDataPointCount_ {0};
+  QScrollArea *dashboardScrollArea_ {nullptr};
 
   FrameProvider frameProvider_;
   BoardCountProvider boardCountProvider_;
+  StatusTextProvider statusTextProvider_;
 
   int okCount_ {0};
   int ngCount_ {0};

@@ -17,10 +17,14 @@ StepExecutionResult RoughPositionStep::execute(WorkflowContext &context) const {
     const bool alreadyPositioned = std::abs(currentX) > 0.01 || std::abs(currentY) > 0.01;
 
     if (!alreadyPositioned) {
-      context.motionController->moveAbsolute(MotionAxis::CameraX, 0.0);
-      context.motionController->moveAbsolute(MotionAxis::CameraY, 0.0);
-      context.motionController->moveAbsolute(MotionAxis::Z, 0.0);
-      context.motionController->moveAbsolute(MotionAxis::R, 0.0);
+      if (context.moveCameraPose) {
+        context.moveCameraPose(MechanicalPose {}, "rough_position_origin");
+      } else {
+        context.motionController->moveAbsolute(MotionAxis::CameraX, 0.0);
+        context.motionController->moveAbsolute(MotionAxis::CameraY, 0.0);
+        context.motionController->moveAbsolute(MotionAxis::Z, 0.0);
+        context.motionController->moveAbsolute(MotionAxis::R, 0.0);
+      }
     }
 
     context.currentMachinePose = MechanicalPose {

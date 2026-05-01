@@ -1,6 +1,7 @@
 #ifdef AOI_HAS_QT_WIDGETS
 
 #include "animation/AnimationWidget.h"
+#include "program/ProgramModel.h"
 #include "transport/ITransportController.h"
 
 #include <QDateTime>
@@ -65,6 +66,10 @@ void AnimationWidget::setDeviceStateText(const QString &text) {
   scene_->setStateText(text);
 }
 
+void AnimationWidget::setBoardDefinition(const BoardDefinition &definition) {
+  scene_->setBoardDefinition(definition);
+}
+
 void AnimationWidget::zoomIn() {
   applyZoom(kZoomStep);
 }
@@ -84,8 +89,7 @@ int AnimationWidget::zoomPercent() const {
 }
 
 void AnimationWidget::wheelEvent(QWheelEvent *event) {
-  const double factor = event->angleDelta().y() > 0 ? kZoomStep : 1.0 / kZoomStep;
-  applyZoom(factor);
+  event->ignore();
 }
 
 void AnimationWidget::resizeEvent(QResizeEvent *event) {
@@ -130,13 +134,6 @@ void AnimationWidget::tick() {
   lastTickNs_ = nowNs;
 
   const double dt = std::min(deltaSec, 0.05);
-
-  if (transport_ != nullptr) {
-    transport_->tick(dt);
-  }
-
-  motion_->tick(dt);
-
   scene_->updateFromMotion(*motion_, dt);
 }
 

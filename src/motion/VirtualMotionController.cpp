@@ -158,6 +158,15 @@ void VirtualMotionController::setAxisDoneCallback(AxisDoneCallback callback) {
   axisDoneCallback_ = std::move(callback);
 }
 
+void VirtualMotionController::setAxisPosition(const MotionAxis axis, const double position) {
+  const auto it = axes_.find(axis);
+  if (it == axes_.end()) return;
+
+  it->second.currentPos = position;
+  it->second.targetPos = position;
+  it->second.state = AxisState::Done;
+}
+
 void VirtualMotionController::tick(const double deltaSec) {
   if (emergencyStopped_) return;
 

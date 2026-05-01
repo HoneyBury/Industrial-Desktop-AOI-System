@@ -75,6 +75,7 @@ add_library(aoi_core
   src/camera/UsbCamera.cpp
   src/camera/MacCameraProvider.cpp
   src/camera/DemoImageCameraProvider.cpp
+  src/camera/VirtualCameraDevice.cpp
   src/calibration/CameraIntrinsicCalibrator.cpp
   src/calibration/LaserOffsetCalibrator.cpp
   src/calibration/MarkReferenceCalibrator.cpp
@@ -100,6 +101,7 @@ add_library(aoi_core
   src/vision/CodeReader.cpp
   src/laser/VirtualLaserController.cpp
   src/motion/VirtualMotionController.cpp
+  src/motion/VirtualMotionSystem.cpp
   src/transport/VirtualTransportController.cpp
   src/statemachine/MachineStateMachine.cpp
   src/program/ProgramManager.cpp
@@ -179,6 +181,8 @@ if(AOI_HAS_QT)
 endif()
 
 if(AOI_HAS_QT)
+  target_link_libraries(aoi_core PUBLIC Qt6::Core)
+
   # Disable the standalone host-writer example; we only need the support library.
   set(LASERSPC_BUILD_HOST_WRITER_EXAMPLE OFF CACHE BOOL "" FORCE)
   add_subdirectory(LaserSpc)

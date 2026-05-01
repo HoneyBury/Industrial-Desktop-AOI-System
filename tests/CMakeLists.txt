@@ -34,6 +34,7 @@ add_executable(aoi_core_tests
   unit/test_process_engine.cpp
   unit/test_program_manager.cpp
   unit/test_virtual_motion_controller.cpp
+  unit/test_virtual_camera_device.cpp
   unit/test_mark_offset.cpp
   unit/test_laser_and_steps.cpp
   integration/test_inspection_pipeline.cpp)

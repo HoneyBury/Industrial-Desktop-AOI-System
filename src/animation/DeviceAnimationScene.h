@@ -4,6 +4,7 @@
 
 #include "animation/AnimationItems.h"
 #include "motion/IMotionController.h"
+#include "program/ProgramModel.h"
 
 #include <QGraphicsScene>
 #include <QGraphicsSimpleTextItem>
@@ -22,6 +23,7 @@ public:
   explicit DeviceAnimationScene(QObject *parent = nullptr);
 
   void updateFromMotion(IMotionController &motion, double deltaSec);
+  void setBoardDefinition(const BoardDefinition &definition);
 
   void setBoardLoaded(bool loaded);
   void setBoardHasMarks(bool hasMarks);
@@ -31,6 +33,12 @@ public:
 
 private:
   void initScene();
+  void updateTrackGeometry(double deltaSec);
+  void applyTrackGeometry();
+  static double approach(double current, double target, double deltaSec, double response);
+  static double mapBoardLengthToScene(double boardLengthMm);
+  static double mapBoardWidthToScene(double boardWidthMm);
+  static double mapRailWidthToScene(double railWidthMm);
 
   ConveyorBeltItem *upperBelt_ {nullptr};
   ConveyorBeltItem *lowerBelt_ {nullptr};
@@ -40,15 +48,21 @@ private:
   LaserHeadItem *laserHead_ {nullptr};
   AlarmIndicatorItem *alarmIndicator_ {nullptr};
   QGraphicsSimpleTextItem *stateLabel_ {nullptr};
+  QGraphicsSimpleTextItem *geometryLabel_ {nullptr};
 
   double lastConveyorPos_ {0.0};
   bool conveyorPosInitialized_ {false};
+  double currentBoardLengthPx_ {120.0};
+  double currentBoardHeightPx_ {30.0};
+  double currentRailWidthPx_ {28.0};
+  double targetBoardLengthPx_ {120.0};
+  double targetBoardHeightPx_ {30.0};
+  double targetRailWidthPx_ {28.0};
+  BoardDefinition boardDefinition_ {};
 
   static constexpr double kSceneWidth = 800.0;
   static constexpr double kSceneHeight = 200.0;
-  static constexpr double kBeltY = 0.0;
-  static constexpr double kBoardY = 32.0;
-  static constexpr double kLowerBeltY = 65.0;
+  static constexpr double kTrackCenterY = 48.0;
   static constexpr double kHeadY = 130.0;
 };
 

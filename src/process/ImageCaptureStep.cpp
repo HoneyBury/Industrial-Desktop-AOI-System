@@ -53,8 +53,15 @@ StepExecutionResult ImageCaptureStep::execute(WorkflowContext &context) const {
       const MechanicalPose roiPose = transformer.productToMechanical(
           roiProductCenter, context.currentMachinePose);
 
-      context.motionController->moveAbsolute(MotionAxis::CameraX, roiPose.x);
-      context.motionController->moveAbsolute(MotionAxis::CameraY, roiPose.y);
+      if (context.moveCameraPose) {
+        if (!context.moveCameraPose(roiPose, "roi_capture")) {
+          continue;
+        }
+      } else {
+        context.motionController->moveAbsolute(MotionAxis::CameraX, roiPose.x);
+        context.motionController->moveAbsolute(MotionAxis::CameraY, roiPose.y);
+      }
+      context.currentMachinePose = roiPose;
 
       const std::string roiImagePath = context.captureFrame();
       if (!roiImagePath.empty()) {

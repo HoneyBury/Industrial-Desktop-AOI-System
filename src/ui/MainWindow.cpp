@@ -109,6 +109,10 @@ std::optional<BoardSceneLayout> currentBoardSceneLayout(const std::optional<Prog
   return layout;
 }
 
+MechanicalPose defaultBoardReadyOriginPose(const BoardDefinition &boardDefinition) {
+  return MechanicalPose {-boardDefinition.boardLengthMm, -boardDefinition.boardWidthMm, 0.0, 0.0};
+}
+
 MechanicalPose boardScanOriginPose(const ProgramModel &program, const MechanicalPose &fallbackPose) {
   if (program.runtimeSummary.hasOriginCalibration) {
     return program.runtimeSummary.originCorrectedPose;
@@ -117,6 +121,10 @@ MechanicalPose boardScanOriginPose(const ProgramModel &program, const Mechanical
     return program.originCalibration.machineReferencePose;
   }
   return fallbackPose;
+}
+
+MechanicalPose logicalBoardReadyOriginPose(const ProgramModel &program) {
+  return boardScanOriginPose(program, defaultBoardReadyOriginPose(program.boardDefinition));
 }
 
 QImage placeholderScanTile(const QSize &fallbackSize, const FovCapturePose &pose) {
@@ -557,15 +565,24 @@ private:
 
 } // namespace
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui_(new Ui::MainWindow) {
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent),
+      ui_(new Ui::MainWindow),
+      virtualMotionSystem_(virtualMotionController_, virtualTransportController_) {
   ui_->setupUi(this);
   cameraTimer_ = new QTimer(this);
   cameraTimer_->setInterval(90);
   connect(cameraTimer_, &QTimer::timeout, this, &MainWindow::updateCameraFrame);
 
+  simulationTimer_ = new QTimer(this);
+  simulationTimer_->setInterval(16);
+  connect(simulationTimer_, &QTimer::timeout, this, &MainWindow::tickVirtualDevices);
+
   workflowTimer_ = new QTimer(this);
   workflowTimer_->setInterval(600);
   connect(workflowTimer_, &QTimer::timeout, this, &MainWindow::advanceWorkflowStep);
+
+  simulationTimer_->start();
 
   appSettings_ = AppSettingsManager::load(projectFilePath(QStringLiteral("config/app_settings.json")).toStdString());
   const QString runtimeDatabasePath = projectFilePath(QStringLiteral("data/aoi_runtime.db"));
@@ -1392,6 +1409,9 @@ void MainWindow::refreshProgramWidgets() {
   };
 
   if (!currentProgram.has_value()) {
+    virtualCamera_.setBoardDefinition(BoardDefinition {});
+    virtualCamera_.setScanRecipe(ScanRecipe {});
+    virtualCamera_.clearBoardReadyOriginPose();
     setLabelText(programNameValueLabel_, QStringLiteral("--"));
     setLabelText(programPathValueLabel_, QStringLiteral("--"));
     setLabelText(programAiModelValueLabel_, QStringLiteral("--"));
@@ -1405,6 +1425,14 @@ void MainWindow::refreshProgramWidgets() {
     refreshStatusSummary();
     return;
   }
+
+  if (motionControlDialog_ != nullptr) {
+    motionControlDialog_->setProgramBoardDefinition(currentProgram->boardDefinition);
+  }
+  virtualMotionSystem_.setBoardDefinition(currentProgram->boardDefinition);
+  virtualCamera_.setBoardDefinition(currentProgram->boardDefinition);
+  virtualCamera_.setScanRecipe(currentProgram->scanRecipe);
+  virtualCamera_.setBoardReadyOriginPose(logicalBoardReadyOriginPose(*currentProgram));
 
   setLabelText(programNameValueLabel_, QString::fromStdString(currentProgram->name));
   setLabelText(programPathValueLabel_, currentProgram->filePath.empty() ? QStringLiteral("内存中的默认程序")
@@ -1581,17 +1609,17 @@ void MainWindow::refreshWorkbenchScene(const bool keepView) {
 
 void MainWindow::refreshCameraState() {
   cameraModeValueLabel_->setText(cameraModeText());
-  const QString cameraStatusText = usbCamera_.isOpened() ? QStringLiteral("实时采图中") : QStringLiteral("未启动");
+  const QString cameraStatusText = virtualCamera_.isOpened() ? QStringLiteral("虚拟采图中") : QStringLiteral("未启动");
   if (cameraStatusToolbarValueLabel_ != nullptr) cameraStatusToolbarValueLabel_->setText(cameraStatusText);
   if (cameraStatusDetailValueLabel_ != nullptr) cameraStatusDetailValueLabel_->setText(cameraStatusText);
-  if (cameraDeviceValueLabel_ != nullptr) cameraDeviceValueLabel_->setText(QString::number(cameraDeviceIndex_));
+  if (cameraDeviceValueLabel_ != nullptr) cameraDeviceValueLabel_->setText(QStringLiteral("DEMO"));
   if (cameraStatusToolbarValueLabel_ != nullptr) {
     cameraStatusToolbarValueLabel_->setStyleSheet(
-        usbCamera_.isOpened() ? QStringLiteral("color: #067647; font-weight: 700;")
-                              : QStringLiteral("color: #667085; font-weight: 700;"));
+        virtualCamera_.isOpened() ? QStringLiteral("color: #067647; font-weight: 700;")
+                                  : QStringLiteral("color: #667085; font-weight: 700;"));
   }
   if (cameraStatusDetailValueLabel_ != nullptr) {
-    cameraStatusDetailValueLabel_->setStyleSheet(usbCamera_.isOpened()
+    cameraStatusDetailValueLabel_->setStyleSheet(virtualCamera_.isOpened()
                                                      ? QStringLiteral("color: #067647; font-weight: 700;")
                                                      : QStringLiteral("color: #667085; font-weight: 700;"));
   }
@@ -1744,7 +1772,7 @@ void MainWindow::openCameraConfig() {
   cameraExposureMs_ = dialog.exposureTimeMs();
   cameraGain_ = dialog.gainValue();
   cameraResolutionPreset_ = dialog.resolutionPreset();
-  appendLog(QStringLiteral("相机配置已更新：索引=%1，曝光=%2 ms，增益=%3 dB，分辨率=%4。")
+  appendLog(QStringLiteral("虚拟相机配置已更新：索引=%1，曝光=%2 ms，增益=%3 dB，分辨率=%4。")
                 .arg(cameraDeviceIndex_)
                 .arg(cameraExposureMs_, 0, 'f', 1)
                 .arg(cameraGain_, 0, 'f', 1)
@@ -1753,16 +1781,17 @@ void MainWindow::openCameraConfig() {
 }
 
 void MainWindow::openMotionPanel() {
-  // 确保运输控制器已绑定运动控制器引用
-  virtualTransportController_.setMotionController(&virtualMotionController_);
-
   if (motionControlDialog_ == nullptr) {
-    motionControlDialog_ = new MotionControlDialog(&virtualMotionController_, &virtualTransportController_, this);
+    motionControlDialog_ = new MotionControlDialog(&virtualMotionSystem_, this);
     connect(motionControlDialog_, &MotionControlDialog::motionStateChanged, this, [this] {
       refreshProgramWidgets();
     });
     connect(motionControlDialog_, &MotionControlDialog::motionLogGenerated, this,
             [this](const QString &message) { appendLog(message); });
+  }
+
+  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+    motionControlDialog_->setProgramBoardDefinition(currentProgram->boardDefinition);
   }
 
   motionControlDialog_->show();
@@ -1786,13 +1815,13 @@ void MainWindow::openProductionHistory() {
 }
 
 void MainWindow::openMarkOffsetCalibration() {
-  if (!usbCamera_.isOpened()) {
+  if (!virtualCamera_.isOpened()) {
     startCameraPreview();
   }
 
   MarkOffsetDialog dialog(this);
   dialog.setFrameProvider([this] { return currentCalibrationFrame(); },
-                          [this] { return usbCamera_.isOpened(); });
+                          [this] { return virtualCamera_.isOpened(); });
   if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
     dialog.setAlignmentContext(currentProgram->marks, currentProgram->pixelScaleCalibration);
   }
@@ -1820,13 +1849,13 @@ void MainWindow::openMarkOffsetCalibration() {
 }
 
 void MainWindow::openOriginCalibration() {
-  if (!usbCamera_.isOpened()) {
+  if (!virtualCamera_.isOpened()) {
     startCameraPreview();
   }
 
   OriginCalibDialog dialog(this);
   dialog.setFrameProvider([this] { return currentCalibrationFrame(); },
-                          [this] { return usbCamera_.isOpened(); });
+                          [this] { return virtualCamera_.isOpened(); });
   if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
     dialog.setCalibrationContext(currentProgram->calibrationData, currentMechanicalPose());
   } else {
@@ -1834,33 +1863,47 @@ void MainWindow::openOriginCalibration() {
   }
   connect(&dialog, &OriginCalibDialog::correctedPoseApplied, this,
           [this](const double x, const double y, const double z, const double r) {
-            updateProgram([x, y, z, r](ProgramModel &program) {
+            const auto currentProgram = programManager_.currentProgram();
+            const BoardDefinition boardDefinition =
+                currentProgram.has_value() ? currentProgram->boardDefinition : BoardDefinition {};
+            const MechanicalPose correctedCornerPose {x, y, z, r};
+            const MechanicalPose logicalOriginPose {
+                correctedCornerPose.x - boardDefinition.boardLengthMm,
+                correctedCornerPose.y - boardDefinition.boardWidthMm,
+                correctedCornerPose.z,
+                correctedCornerPose.r,
+            };
+
+            updateProgram([logicalOriginPose](ProgramModel &program) {
               program.originCalibration.calibrated = true;
-              program.originCalibration.machineReferencePose = MechanicalPose {x, y, z, r};
+              program.originCalibration.machineReferencePose = logicalOriginPose;
               program.runtimeSummary.hasOriginCalibration = true;
-              program.runtimeSummary.originCorrectedPose = MechanicalPose {x, y, z, r};
+              program.runtimeSummary.originCorrectedPose = logicalOriginPose;
             });
             CalibrationRecord record;
             record.calibrationType = "origin";
-            record.originX = x;
-            record.originY = y;
-            record.originR = r;
-            record.notes = "Origin compensation applied from UI";
+            record.originX = logicalOriginPose.x;
+            record.originY = logicalOriginPose.y;
+            record.originR = logicalOriginPose.r;
+            record.notes = "Stopper-corner calibration converted to logical board origin";
             logCalibrationRecord(record);
-            applyMechanicalPose(MechanicalPose {x, y, z, r}, QStringLiteral("原点校正补偿"));
+            applyMechanicalPose(correctedCornerPose, QStringLiteral("原点校正对位"));
+            appendLog(QStringLiteral("已将挡板右下角参考位换算为逻辑原点：X=%1, Y=%2")
+                          .arg(logicalOriginPose.x, 0, 'f', 3)
+                          .arg(logicalOriginPose.y, 0, 'f', 3));
             refreshTemplatePreviewSummary();
           });
   dialog.exec();
 }
 
 void MainWindow::openLaserOffsetCalibration() {
-  if (!usbCamera_.isOpened()) {
+  if (!virtualCamera_.isOpened()) {
     startCameraPreview();
   }
 
   LaserOffsetCalibDialog dialog(this);
   dialog.setFrameProvider([this] { return currentCalibrationFrame(); },
-                          [this] { return usbCamera_.isOpened(); });
+                          [this] { return virtualCamera_.isOpened(); });
 
   const auto currentProgram = programManager_.currentProgram();
   PixelPoint opticalCenter {0.0, 0.0};
@@ -1921,11 +1964,11 @@ BoardScanCaptureWorkflowResult MainWindow::executeWholeBoardScan(const bool refr
     return BoardScanCaptureWorkflowResult::failure("Board is not ready. Please load a board first.");
   }
 
-  if (!usbCamera_.isOpened()) {
+  if (!virtualCamera_.isOpened()) {
     startCameraPreview();
   }
 
-  const MechanicalPose originPose = boardScanOriginPose(*currentProgram, currentMechanicalPose());
+  const MechanicalPose originPose = logicalBoardReadyOriginPose(*currentProgram);
   BoardScanPlanner planner;
   const auto planResult = planner.plan(currentProgram->boardDefinition, currentProgram->scanRecipe, originPose);
   if (!planResult) {
@@ -1964,6 +2007,9 @@ BoardScanCaptureWorkflowResult MainWindow::executeWholeBoardScan(const bool refr
                                                   return {};
                                                 }
                                                 return tilePath.toStdString();
+                                              },
+                                              [this](const MechanicalPose &pose) {
+                                                return virtualMotionSystem_.moveCameraPose(pose);
                                               });
   if (!executeResult) {
     return BoardScanCaptureWorkflowResult::failure(executeResult.message);
@@ -2186,41 +2232,65 @@ void MainWindow::openSettings() {
 }
 
 void MainWindow::startCameraPreview() {
-  if (usbCamera_.isOpened()) {
+  if (virtualCamera_.isOpened()) {
     return;
   }
 
   const QSize frameSize = parseResolutionPreset(cameraResolutionPreset_);
-  usbCamera_.setPreferredFrameSize(frameSize.width(), frameSize.height());
+  virtualCamera_.setPreferredFrameSize(frameSize.width(), frameSize.height());
+  virtualCamera_.setBoardImagePath(projectFilePath(QStringLiteral("demoimage/board.png")).toStdString());
 
-  if (!usbCamera_.open(cameraDeviceIndex_)) {
-    appendLog(QStringLiteral("相机启动失败，索引=%1。").arg(cameraDeviceIndex_));
+  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+    virtualCamera_.setBoardDefinition(currentProgram->boardDefinition);
+    virtualCamera_.setScanRecipe(currentProgram->scanRecipe);
+    virtualCamera_.setBoardReadyOriginPose(logicalBoardReadyOriginPose(*currentProgram));
+  } else {
+    virtualCamera_.setBoardDefinition(BoardDefinition {});
+    virtualCamera_.setScanRecipe(ScanRecipe {});
+    virtualCamera_.clearBoardReadyOriginPose();
+  }
+
+  virtualCamera_.setCurrentPose(currentMechanicalPose());
+  virtualCamera_.setTransportState(
+      virtualTransportController_.state(),
+      virtualTransportController_.boardPosition(),
+      virtualTransportController_.stopperTargetPosition());
+
+  if (!virtualCamera_.open(cameraDeviceIndex_)) {
+    appendLog(QStringLiteral("虚拟相机启动失败，整板图路径=%1。")
+                  .arg(projectFilePath(QStringLiteral("demoimage/board.png"))));
     refreshCameraState();
     return;
   }
 
   cameraTimer_->start();
-  appendLog(QStringLiteral("实时采图已启动，设备索引=%1。").arg(cameraDeviceIndex_));
+  appendLog(QStringLiteral("虚拟整板相机已启动。"));
   refreshCameraState();
   updateCameraFrame();
 }
 
 void MainWindow::stopCameraPreview() {
-  if (!usbCamera_.isOpened()) {
+  if (!virtualCamera_.isOpened()) {
     refreshCameraState();
     return;
   }
 
   cameraTimer_->stop();
-  usbCamera_.close();
+  virtualCamera_.close();
   lastCameraFrameImage_ = QImage();
-  appendLog(QStringLiteral("实时采图已停止。"));
+  appendLog(QStringLiteral("虚拟整板相机已停止。"));
   refreshCameraState();
   refreshWorkbenchScene();
 }
 
 void MainWindow::updateCameraFrame() {
-  const CameraFrame frame = usbCamera_.grabFrame();
+  virtualCamera_.setCurrentPose(currentMechanicalPose());
+  virtualCamera_.setTransportState(
+      virtualTransportController_.state(),
+      virtualTransportController_.boardPosition(),
+      virtualTransportController_.stopperTargetPosition());
+
+  const CameraFrame frame = virtualCamera_.grabFrame();
   if (frame.width <= 0 || frame.height <= 0) {
     return;
   }
@@ -2771,21 +2841,14 @@ QImage MainWindow::currentCalibrationFrame() const {
 }
 
 MechanicalPose MainWindow::currentMechanicalPose() const {
-  return MechanicalPose {
-      virtualMotionController_.position(MotionAxis::CameraX).value_or(0.0),
-      virtualMotionController_.position(MotionAxis::CameraY).value_or(0.0),
-      virtualMotionController_.position(MotionAxis::Z).value_or(0.0),
-      virtualMotionController_.position(MotionAxis::R).value_or(0.0),
-  };
+  return virtualMotionSystem_.currentCameraPose();
 }
 
 void MainWindow::applyMechanicalPose(const MechanicalPose &pose, const QString &reason) {
-  virtualMotionController_.moveAbsolute(MotionAxis::CameraX, pose.x);
-  virtualMotionController_.moveAbsolute(MotionAxis::CameraY, pose.y);
-  virtualMotionController_.moveAbsolute(MotionAxis::Z, pose.z);
-  virtualMotionController_.moveAbsolute(MotionAxis::R, pose.r);
+  const bool moveOk = virtualMotionSystem_.moveCameraPose(pose);
   refreshProgramWidgets();
-  appendLog(QStringLiteral("%1已应用到虚拟运控：X=%2, Y=%3, Z=%4, R=%5")
+  appendLog((moveOk ? QStringLiteral("%1已应用到虚拟运控：X=%2, Y=%3, Z=%4, R=%5")
+                     : QStringLiteral("%1应用到虚拟运控失败：X=%2, Y=%3, Z=%4, R=%5"))
                 .arg(reason)
                 .arg(pose.x, 0, 'f', 3)
                 .arg(pose.y, 0, 'f', 3)
@@ -2793,33 +2856,87 @@ void MainWindow::applyMechanicalPose(const MechanicalPose &pose, const QString &
                 .arg(pose.r, 0, 'f', 3));
 }
 
+void MainWindow::tickVirtualDevices() {
+  constexpr double kSimulationDtSec = 0.016;
+  virtualMotionSystem_.tick(kSimulationDtSec);
+}
+
 QString MainWindow::cameraModeText() const {
-#ifdef AOI_HAS_OPENCV
-  return QStringLiteral("真实摄像头 + CAD 叠加");
-#else
-  return QStringLiteral("模拟采图 + CAD 叠加");
-#endif
+  return QStringLiteral("虚拟整板相机 + CAD 叠加");
+}
+
+QString MainWindow::boardTransportStateText() const {
+  switch (virtualTransportController_.state()) {
+  case BoardTransportState::Idle:
+    return QStringLiteral("待进板");
+  case BoardTransportState::Loading:
+    return QStringLiteral("进板中");
+  case BoardTransportState::BoardReady:
+    return QStringLiteral("板到位");
+  case BoardTransportState::Unloading:
+    return QStringLiteral("出板中");
+  }
+  return QStringLiteral("未知");
 }
 
 QString MainWindow::motionStateText() const {
-  QString transportText;
-  switch (virtualTransportController_.state()) {
-  case BoardTransportState::Idle:
-    transportText = QStringLiteral("待进板");
-    break;
-  case BoardTransportState::Loading:
-    transportText = QStringLiteral("进板中");
-    break;
-  case BoardTransportState::BoardReady:
-    transportText = QStringLiteral("板到位");
-    break;
-  case BoardTransportState::Unloading:
-    transportText = QStringLiteral("出板中");
-    break;
+  const QString axisText = virtualMotionController_.isStopped() ? QStringLiteral("轴急停") : QStringLiteral("轴就绪");
+  return QStringLiteral("%1 / %2").arg(axisText, boardTransportStateText());
+}
+
+QString MainWindow::runModeOverlayText() const {
+  QString workflowStateText = QStringLiteral("待启动");
+  if (appMode_ != AppMode::Run) {
+    workflowStateText = QStringLiteral("编辑模式");
+  } else if (workflowRunning_) {
+    workflowStateText = QStringLiteral("运行中");
+  } else if (workflowContext_.nextStepIndex > 0 || workflowContext_.boardIndex > 0 ||
+             workflowContext_.okCount > 0 || workflowContext_.ngCount > 0) {
+    workflowStateText = QStringLiteral("已暂停");
   }
 
-  const QString axisText = virtualMotionController_.isStopped() ? QStringLiteral("轴急停") : QStringLiteral("轴就绪");
-  return QStringLiteral("%1 / %2").arg(axisText, transportText);
+  const int totalBoards = workflowContext_.totalBoards > 0 ? workflowContext_.totalBoards : 10;
+  const int boardDisplayIndex =
+      totalBoards > 0 ? qBound(1, workflowContext_.boardIndex + 1, totalBoards) : workflowContext_.boardIndex + 1;
+  const MechanicalPose pose = currentMechanicalPose();
+  const VirtualCameraPoseInfo cardPoseInfo = virtualCamera_.lastPoseInfo();
+
+  QString boardSizeText = QStringLiteral("板尺寸未加载");
+  if (const auto currentProgram = programManager_.currentProgram(); currentProgram.has_value()) {
+    const auto &definition = currentProgram->boardDefinition;
+    boardSizeText = QStringLiteral("%1 x %2 mm | 轨宽 %3 mm")
+                        .arg(definition.boardLengthMm, 0, 'f', 1)
+                        .arg(definition.boardWidthMm, 0, 'f', 1)
+                        .arg(definition.railWidthMm, 0, 'f', 1);
+  }
+
+  const QString stepCounter =
+      workflowTotalSteps_ > 0 ? QStringLiteral("%1/%2").arg(workflowStepIndex_).arg(workflowTotalSteps_)
+                              : QStringLiteral("--/--");
+  const QString stepSummary =
+      workflowStepSummary_.trimmed().isEmpty() ? QStringLiteral("等待启动") : workflowStepSummary_.trimmed();
+
+  return QStringLiteral("流程：%1 | 步骤 %2\n"
+                        "当前步骤：%3\n"
+                        "板状态：%4 | 板 %5/%6 | OK %7 NG %8\n"
+                        "轴位：X=%9  Y=%10  Z=%11  R=%12\n"
+                        "卡坐标：X=%13  Y=%14\n"
+                        "板参数：%15")
+      .arg(workflowStateText)
+      .arg(stepCounter)
+      .arg(stepSummary)
+      .arg(boardTransportStateText())
+      .arg(boardDisplayIndex)
+      .arg(totalBoards)
+      .arg(workflowContext_.okCount)
+      .arg(workflowContext_.ngCount)
+      .arg(pose.x, 0, 'f', 3)
+      .arg(pose.y, 0, 'f', 3)
+      .arg(pose.z, 0, 'f', 3)
+      .arg(pose.r, 0, 'f', 3)
+      .arg(cardPoseInfo.physicalCardXmm, 0, 'f', 3)
+      .arg(cardPoseInfo.physicalCardYmm, 0, 'f', 3)
+      .arg(boardSizeText);
 }
 
 QString MainWindow::currentMarkShapeText() const {
@@ -2837,6 +2954,7 @@ QString MainWindow::currentRoiShapeText() const {
 void MainWindow::buildRunInterface() {
   runModeWidget_ = new RunModeWidget(mainStackedWidget_);
   runModeWidget_->setFrameProvider([this] { return currentCalibrationFrame(); });
+  runModeWidget_->setStatusTextProvider([this] { return runModeOverlayText(); });
   runModeWidget_->setTotalBoards(10);
 
   connect(runModeWidget_, &RunModeWidget::startRequested, this, &MainWindow::startWorkflowRun);
@@ -2869,7 +2987,7 @@ void MainWindow::switchToRunMode() {
   appMode_ = AppMode::Run;
 
   // Ensure camera is running
-  if (!usbCamera_.isOpened()) {
+  if (!virtualCamera_.isOpened()) {
     startCameraPreview();
   }
 
@@ -2891,6 +3009,7 @@ void MainWindow::switchToRunMode() {
 
   workflowStepIndex_ = 0;
   workflowTotalSteps_ = static_cast<int>(processEngine_.stepCount());
+  workflowStepSummary_ = QStringLiteral("等待启动");
   workflowRunning_ = false;
 
   // Wire callbacks
@@ -2915,12 +3034,11 @@ void MainWindow::switchToRunMode() {
       break;
     }
 
-    runModeWidget_->updateStepProgress(
-        QStringLiteral("步骤 %1/%2: %3 [%4]")
-            .arg(stepIdx)
-            .arg(totalSteps)
-            .arg(QString::fromStdString(stepName), statusText),
-        stepIdx, totalSteps);
+    workflowStepSummary_ = QStringLiteral("步骤 %1/%2: %3 [%4]")
+                               .arg(stepIdx)
+                               .arg(totalSteps)
+                               .arg(QString::fromStdString(stepName), statusText);
+    runModeWidget_->updateStepProgress(workflowStepSummary_, stepIdx, totalSteps);
   };
 
   workflowContext_.onLog = [this](const std::string &message) {
@@ -2952,6 +3070,9 @@ void MainWindow::switchToRunMode() {
   workflowContext_.captureWholeBoardScan = [this]() -> BoardScanCaptureWorkflowResult {
     return executeWholeBoardScan(false);
   };
+  workflowContext_.moveCameraPose = [this](const MechanicalPose &pose, const std::string &) {
+    return virtualMotionSystem_.moveCameraPose(pose);
+  };
 
   if (mainStackedWidget_ != nullptr) {
     mainStackedWidget_->setCurrentIndex(1);
@@ -2967,7 +3088,7 @@ void MainWindow::switchToRunMode() {
 
   runModeWidget_->appendProductionLog(QStringLiteral("已进入运行模式，等待启动。"));
   runModeWidget_->fitPreviewContent();
-  appendLog(QStringLiteral("已切换到运行模式。左：锁定预览 | 右：生产数据看板"));
+  appendLog(QStringLiteral("已切换到运行模式。"));
   refreshStatusSummary();
 }
 
@@ -3029,6 +3150,7 @@ void MainWindow::startWorkflowRun() {
   workflowContext_.okCount = 0;
   workflowContext_.ngCount = 0;
   workflowContext_.currentMachinePose = currentMechanicalPose();
+  workflowStepSummary_ = QStringLiteral("等待启动");
 
   // Wire frame capture callback.
   workflowContext_.captureFrame = [this]() -> std::string {
@@ -3050,6 +3172,9 @@ void MainWindow::startWorkflowRun() {
   };
   workflowContext_.captureWholeBoardScan = [this]() -> BoardScanCaptureWorkflowResult {
     return executeWholeBoardScan(false);
+  };
+  workflowContext_.moveCameraPose = [this](const MechanicalPose &pose, const std::string &) {
+    return virtualMotionSystem_.moveCameraPose(pose);
   };
 
   // Wire step progress callback for UI updates.
@@ -3077,12 +3202,11 @@ void MainWindow::startWorkflowRun() {
         break;
       }
 
-      runModeWidget_->updateStepProgress(
-          QStringLiteral("步骤 %1/%2: %3 [%4]")
-              .arg(stepIdx)
-              .arg(totalSteps)
-              .arg(QString::fromStdString(stepName), statusText),
-          stepIdx, totalSteps);
+      workflowStepSummary_ = QStringLiteral("步骤 %1/%2: %3 [%4]")
+                                 .arg(stepIdx)
+                                 .arg(totalSteps)
+                                 .arg(QString::fromStdString(stepName), statusText);
+      runModeWidget_->updateStepProgress(workflowStepSummary_, stepIdx, totalSteps);
     }
   };
 
@@ -3105,6 +3229,7 @@ void MainWindow::startWorkflowRun() {
 
   workflowStepIndex_ = 0;
   workflowTotalSteps_ = static_cast<int>(processEngine_.stepCount());
+  workflowStepSummary_ = QStringLiteral("准备启动流程");
   workflowRunning_ = true;
   workflowTimer_->start();
 
@@ -3125,6 +3250,7 @@ void MainWindow::stopWorkflowRun() {
   workflowRunning_ = false;
   workflowTimer_->stop();
   processEngine_.requestCancel();
+  workflowStepSummary_ = QStringLiteral("工作流已停止");
 
   if (runModeWidget_ != nullptr) {
     runModeWidget_->appendProductionLog(QStringLiteral("工作流已停止。"));
@@ -3136,6 +3262,7 @@ void MainWindow::stopWorkflowRun() {
 void MainWindow::pauseWorkflowRun() {
   workflowRunning_ = false;
   workflowTimer_->stop();
+  workflowStepSummary_ = QStringLiteral("工作流已暂停");
 
   if (runModeWidget_ != nullptr) {
     runModeWidget_->appendProductionLog(QStringLiteral("工作流已暂停。"));
@@ -3183,8 +3310,9 @@ void MainWindow::advanceWorkflowStepInternal(const bool allowWhenPaused) {
   const int totalSteps = workflowTotalSteps_ > 0 ? workflowTotalSteps_
                                                   : static_cast<int>(processEngine_.stepCount());
   if (runModeWidget_ != nullptr) {
+    workflowStepSummary_ = QStringLiteral("板 #%1 完成").arg(workflowContext_.boardIndex + 1);
     runModeWidget_->updateStepProgress(
-        QStringLiteral("板 #%1 完成").arg(workflowContext_.boardIndex + 1),
+        workflowStepSummary_,
         totalSteps, totalSteps);
   }
 
@@ -3200,6 +3328,7 @@ void MainWindow::advanceWorkflowStepInternal(const bool allowWhenPaused) {
     workflowRunning_ = false;
 
     if (runModeWidget_ != nullptr) {
+      workflowStepSummary_ = QStringLiteral("全部完成");
       runModeWidget_->appendProductionLog(
           QString::fromUtf8("═══════════════════════════════════\n"
                             "全部 %1 块板处理完成。OK=%2, NG=%3\n"
@@ -3207,7 +3336,7 @@ void MainWindow::advanceWorkflowStepInternal(const bool allowWhenPaused) {
               .arg(workflowContext_.totalBoards)
               .arg(workflowContext_.okCount)
               .arg(workflowContext_.ngCount));
-      runModeWidget_->updateStepProgress(QString::fromUtf8("全部完成"), totalSteps, totalSteps);
+      runModeWidget_->updateStepProgress(workflowStepSummary_, totalSteps, totalSteps);
     }
 
     appendLog(QString::fromUtf8("工作流全部完成。"));

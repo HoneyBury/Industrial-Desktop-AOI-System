@@ -74,6 +74,17 @@ void tickUntilReady(VirtualTransportController &transport, double maxSec = 5.0) 
     if (transport.isBoardReady() || transport.state() == BoardTransportState::Idle) break;
   }
 }
+
+void tickTransportAndMotion(VirtualTransportController &transport,
+                            VirtualMotionController &motion,
+                            double maxSec = 5.0) {
+  const double dt = 0.05;
+  for (double elapsed = 0.0; elapsed < maxSec; elapsed += dt) {
+    transport.tick(dt);
+    motion.tick(dt);
+    if (transport.isBoardReady() || transport.state() == BoardTransportState::Idle) break;
+  }
+}
 } // namespace
 
 TEST(VirtualTransportControllerTest, LoadBoardSetsReadySignal) {
@@ -94,6 +105,32 @@ TEST(VirtualTransportControllerTest, UnloadBoardClearsReadySignal) {
   tickUntilReady(transport);
   EXPECT_TRUE(!transport.isBoardReady());
   EXPECT_EQ(transport.state(), BoardTransportState::Idle);
+}
+
+TEST(VirtualTransportControllerTest, UnloadCycleDoesNotBreakSubsequentMotionOrReload) {
+  VirtualTransportController transport;
+  VirtualMotionController motion;
+  transport.setMotionController(&motion);
+
+  ASSERT_TRUE(transport.loadBoard());
+  tickTransportAndMotion(transport, motion);
+  ASSERT_TRUE(transport.isBoardReady());
+
+  ASSERT_TRUE(transport.unloadBoard());
+  tickTransportAndMotion(transport, motion, 8.0);
+  EXPECT_EQ(transport.state(), BoardTransportState::Idle);
+
+  EXPECT_TRUE(motion.moveAbs(MotionAxis::CameraX, 50.0));
+  for (int i = 0; i < 100; ++i) {
+    motion.tick(0.05);
+    if (motion.getAxisState(MotionAxis::CameraX) == AxisState::Done) break;
+  }
+  EXPECT_NEAR(motion.position(MotionAxis::CameraX).value_or(0.0), 50.0, 1e-9);
+
+  ASSERT_TRUE(transport.loadBoard());
+  tickTransportAndMotion(transport, motion);
+  EXPECT_TRUE(transport.isBoardReady());
+  EXPECT_NEAR(motion.position(MotionAxis::Conveyor).value_or(0.0), transport.boardPosition(), 1e-9);
 }
 
 // ---------------------------------------------------------------------------
