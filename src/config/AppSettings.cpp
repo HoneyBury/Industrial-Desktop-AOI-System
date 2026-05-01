@@ -32,6 +32,7 @@ std::string readFile(const std::string &filePath) {
   return buffer.str();
 }
 
+// Extracts a string value for a top-level key: "key": "..."
 std::string extractJsonString(const std::string &json, const std::string &key) {
   const std::string search = "\"" + key + "\": \"";
   const auto pos = json.find(search);
@@ -73,6 +74,58 @@ int extractJsonInt(const std::string &json, const std::string &key, int defaultV
   }
 }
 
+// Extracts a value from a nested group by locating the group object first, then
+// the key within it. Falls back to the top-level flat key.
+std::string extractNestedString(const std::string &json,
+                                const std::string &group,
+                                const std::string &key,
+                                const std::string &defaultValue) {
+  // Try nested group first.
+  const std::string groupSearch = "\"" + group + "\": {";
+  const auto groupPos = json.find(groupSearch);
+  if (groupPos != std::string::npos) {
+    const std::string groupJson = json.substr(groupPos);
+    const std::string val = extractJsonString(groupJson, key);
+    if (!val.empty()) {
+      return val;
+    }
+  }
+  // Fall back to flat key.
+  const std::string flat = extractJsonString(json, key);
+  return flat.empty() ? defaultValue : flat;
+}
+
+bool extractNestedBool(const std::string &json,
+                       const std::string &group,
+                       const std::string &key,
+                       bool defaultValue) {
+  const std::string groupSearch = "\"" + group + "\": {";
+  const auto groupPos = json.find(groupSearch);
+  if (groupPos != std::string::npos) {
+    const std::string groupJson = json.substr(groupPos);
+    // Only use nested value if the key actually exists there.
+    if (groupJson.find("\"" + key + "\": ") != std::string::npos) {
+      return extractJsonBool(groupJson, key, defaultValue);
+    }
+  }
+  return extractJsonBool(json, key, defaultValue);
+}
+
+int extractNestedInt(const std::string &json,
+                     const std::string &group,
+                     const std::string &key,
+                     int defaultValue) {
+  const std::string groupSearch = "\"" + group + "\": {";
+  const auto groupPos = json.find(groupSearch);
+  if (groupPos != std::string::npos) {
+    const std::string groupJson = json.substr(groupPos);
+    if (groupJson.find("\"" + key + "\": ") != std::string::npos) {
+      return extractJsonInt(groupJson, key, defaultValue);
+    }
+  }
+  return extractJsonInt(json, key, defaultValue);
+}
+
 } // namespace
 
 AppSettings AppSettingsManager::load(const std::string &filePath) {
@@ -82,17 +135,27 @@ AppSettings AppSettingsManager::load(const std::string &filePath) {
     return settings;
   }
 
-  settings.programOpenPath = extractJsonString(json, "programOpenPath");
-  settings.templateFolderPath = extractJsonString(json, "templateFolderPath");
-  settings.persistLogs = extractJsonBool(json, "persistLogs", false);
-  settings.logFilePath = extractJsonString(json, "logFilePath");
-  settings.showLogWindow = extractJsonBool(json, "showLogWindow", false);
-  settings.workMode = extractJsonString(json, "workMode");
-  if (settings.workMode.empty()) {
-    settings.workMode = "manual";
-  }
-  settings.alarmEnabled = extractJsonBool(json, "alarmEnabled", false);
-  settings.maxDefectCount = extractJsonInt(json, "maxDefectCount", 10);
+  // Application group (with flat fallback)
+  settings.language = extractNestedString(json, "application", "language", "zh_CN");
+  settings.programOpenPath = extractNestedString(json, "application", "programOpenPath", "");
+  settings.templateFolderPath = extractNestedString(json, "application", "templateFolderPath", "");
+  settings.persistLogs = extractNestedBool(json, "application", "persistLogs", false);
+  settings.logFilePath = extractNestedString(json, "application", "logFilePath", "");
+  settings.logMinLevel = extractNestedString(json, "application", "logMinLevel", "Info");
+
+  // UI group
+  settings.showLogWindow = extractNestedBool(json, "ui", "showLogWindow", false);
+  settings.theme = extractNestedString(json, "ui", "theme", "dark");
+
+  // Runtime group
+  settings.workMode = extractNestedString(json, "runtime", "workMode", "manual");
+  settings.alarmEnabled = extractNestedBool(json, "runtime", "alarmEnabled", false);
+  settings.maxDefectCount = extractNestedInt(json, "runtime", "maxDefectCount", 10);
+
+  // Camera group
+  settings.cameraDeviceIndex = extractNestedInt(json, "camera", "deviceIndex", 0);
+  settings.cameraWidth = extractNestedInt(json, "camera", "width", 1920);
+  settings.cameraHeight = extractNestedInt(json, "camera", "height", 1080);
 
   return settings;
 }
@@ -104,14 +167,33 @@ bool AppSettingsManager::save(const AppSettings &settings, const std::string &fi
   }
 
   file << "{\n"
-       << "  \"programOpenPath\": \"" << escapeJson(settings.programOpenPath) << "\",\n"
-       << "  \"templateFolderPath\": \"" << escapeJson(settings.templateFolderPath) << "\",\n"
-       << "  \"persistLogs\": " << (settings.persistLogs ? "true" : "false") << ",\n"
-       << "  \"logFilePath\": \"" << escapeJson(settings.logFilePath) << "\",\n"
-       << "  \"showLogWindow\": " << (settings.showLogWindow ? "true" : "false") << ",\n"
-       << "  \"workMode\": \"" << escapeJson(settings.workMode) << "\",\n"
-       << "  \"alarmEnabled\": " << (settings.alarmEnabled ? "true" : "false") << ",\n"
-       << "  \"maxDefectCount\": " << settings.maxDefectCount << "\n"
+
+       << "  \"application\": {\n"
+       << "    \"language\": \"" << escapeJson(settings.language) << "\",\n"
+       << "    \"programOpenPath\": \"" << escapeJson(settings.programOpenPath) << "\",\n"
+       << "    \"templateFolderPath\": \"" << escapeJson(settings.templateFolderPath) << "\",\n"
+       << "    \"persistLogs\": " << (settings.persistLogs ? "true" : "false") << ",\n"
+       << "    \"logFilePath\": \"" << escapeJson(settings.logFilePath) << "\",\n"
+       << "    \"logMinLevel\": \"" << escapeJson(settings.logMinLevel) << "\"\n"
+       << "  },\n"
+
+       << "  \"ui\": {\n"
+       << "    \"showLogWindow\": " << (settings.showLogWindow ? "true" : "false") << ",\n"
+       << "    \"theme\": \"" << escapeJson(settings.theme) << "\"\n"
+       << "  },\n"
+
+       << "  \"runtime\": {\n"
+       << "    \"workMode\": \"" << escapeJson(settings.workMode) << "\",\n"
+       << "    \"alarmEnabled\": " << (settings.alarmEnabled ? "true" : "false") << ",\n"
+       << "    \"maxDefectCount\": " << settings.maxDefectCount << "\n"
+       << "  },\n"
+
+       << "  \"camera\": {\n"
+       << "    \"deviceIndex\": " << settings.cameraDeviceIndex << ",\n"
+       << "    \"width\": " << settings.cameraWidth << ",\n"
+       << "    \"height\": " << settings.cameraHeight << "\n"
+       << "  }\n"
+
        << "}\n";
 
   return true;

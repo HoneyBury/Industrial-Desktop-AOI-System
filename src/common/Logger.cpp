@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <ctime>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
@@ -14,18 +15,28 @@ std::mutex &logMutex() {
   return mutex;
 }
 
-std::string levelToString(const LogLevel level) {
-  switch (level) {
-  case LogLevel::Debug:
-    return "DEBUG";
-  case LogLevel::Info:
-    return "INFO";
-  case LogLevel::Warning:
-    return "WARN";
-  case LogLevel::Error:
-    return "ERROR";
-  }
+std::string &logFilePath() {
+  static std::string path;
+  return path;
+}
 
+LogLevel &minLevel() {
+  static LogLevel level {LogLevel::Debug};
+  return level;
+}
+
+std::ofstream &logFileStream() {
+  static std::ofstream stream;
+  return stream;
+}
+
+const char *levelToString(const LogLevel level) {
+  switch (level) {
+  case LogLevel::Debug:   return "DEBUG";
+  case LogLevel::Info:    return "INFO";
+  case LogLevel::Warning: return "WARN";
+  case LogLevel::Error:   return "ERROR";
+  }
   return "UNKNOWN";
 }
 
@@ -47,18 +58,42 @@ std::string timestamp() {
 
 } // namespace
 
-void Logger::log(const LogLevel level, const std::string &message) {
+void Logger::setLogFile(const std::string &filePath) {
   std::scoped_lock lock(logMutex());
-  auto &stream = level == LogLevel::Error ? std::cerr : std::cout;
-  stream << "[" << timestamp() << "]"
-         << "[" << levelToString(level) << "] " << message << std::endl;
+  auto &fs = logFileStream();
+  if (fs.is_open()) {
+    fs.close();
+  }
+  logFilePath() = filePath;
+  if (!filePath.empty()) {
+    fs.open(filePath, std::ios::out | std::ios::app);
+  }
 }
 
-void Logger::debug(const std::string &message) { log(LogLevel::Debug, message); }
+void Logger::setMinLevel(const LogLevel level) {
+  minLevel() = level;
+}
 
-void Logger::info(const std::string &message) { log(LogLevel::Info, message); }
+void Logger::log(const LogLevel level, const std::string &message) {
+  if (level < minLevel()) {
+    return;
+  }
 
+  const std::string formatted =
+      "[" + timestamp() + "][" + levelToString(level) + "] " + message;
+
+  std::scoped_lock lock(logMutex());
+
+  auto &consoleStream = level == LogLevel::Error ? std::cerr : std::cout;
+  consoleStream << formatted << std::endl;
+
+  auto &fs = logFileStream();
+  if (fs.is_open()) {
+    fs << formatted << std::endl;
+  }
+}
+
+void Logger::debug(const std::string &message)   { log(LogLevel::Debug, message); }
+void Logger::info(const std::string &message)    { log(LogLevel::Info, message); }
 void Logger::warning(const std::string &message) { log(LogLevel::Warning, message); }
-
-void Logger::error(const std::string &message) { log(LogLevel::Error, message); }
-
+void Logger::error(const std::string &message)   { log(LogLevel::Error, message); }
